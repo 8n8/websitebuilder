@@ -8,6 +8,8 @@ import Element as E
 import Element.Border as Eb
 import Element.Events as Ev
 import Element.Input as Ei
+import Html.Attributes as Hat
+import Set
 import Task
 import Url
 
@@ -35,7 +37,7 @@ type alias Model =
     { viewport : Dom.Viewport
     , mode : Mode
     , website : Maybe Website
-    , focussedNode : Maybe Int
+    , focussedNodes : Set.Set Int
     , internalErr : Maybe String
     , maxId : Int
     }
@@ -66,9 +68,9 @@ type Msg
     | EditComponent
     | EditText Int String
     | Clicked Int
-    | Unfocussed Int
     | Unselect
     | InsertRow
+    | Unclicked Int
 
 
 notEmptyErr =
@@ -143,20 +145,69 @@ editEmptyErr =
     "can't edit text in empty website"
 
 
+updateWebsiteOnClick : Model -> Int -> Website -> Website
+updateWebsiteOnClick model clickId oldWebsite =
+    case ( oldWebsite, model.mode ) of
+        ( ( Row cells, id ), InsertTextMode ) ->
+            if id == clickId then
+                ( Row <|
+                    ( Text "Enter text here", model.maxId + 1 )
+                        :: cells
+                , id
+                )
+
+            else
+                ( Row <|
+                    List.map
+                        (updateWebsiteOnClick model clickId)
+                        cells
+                , id
+                )
+
+        _ ->
+            oldWebsite
+
+
+clickNothingErr =
+    "can't click on something that isn't there"
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        Unclicked id ->
+            ( { model
+                | focussedNodes = Debug.log "focussedNodes after unclick" <| Set.remove id model.focussedNodes
+              }
+            , Cmd.none
+            )
+
         InsertRow ->
             ( { model | mode = InsertRowMode }, Cmd.none )
 
         Unselect ->
-            ( { model | focussedNode = Nothing }, Cmd.none )
+            ( { model | focussedNodes = Set.empty }, Cmd.none )
 
         Clicked id ->
-            ( { model | focussedNode = Just id }, Cmd.none )
+            case model.website of
+                Nothing ->
+                    ( { model | internalErr = Just clickNothingErr }
+                    , Cmd.none
+                    )
 
-        Unfocussed id ->
-            ( { model | focussedNode = Nothing }, Cmd.none )
+                Just oldWebsite ->
+                    ( { model
+                        | focussedNodes = Debug.log "focussedNodes after click" <| Set.insert id model.focussedNodes
+                        , website =
+                            Just <|
+                                updateWebsiteOnClick
+                                    model
+                                    id
+                                    oldWebsite
+                        , maxId = model.maxId + 1
+                      }
+                    , Cmd.none
+                    )
 
         EditText id newText ->
             case model.website of
@@ -204,7 +255,7 @@ init _ url key =
       , mode = SelectorMode
       , website = Nothing
       , internalErr = Nothing
-      , focussedNode = Nothing
+      , focussedNodes = Set.empty
       , maxId = 0
       }
     , Task.perform Viewport Dom.getViewport
@@ -266,26 +317,36 @@ emptySite =
 
 showText : String -> Int -> E.Element Msg
 showText txt id =
-    E.el [ Ev.onClick (Clicked id) ] <|
+    E.el
+        [ Ev.onFocus (Clicked id)
+        , Ev.onLoseFocus (Unclicked id)
+        , E.htmlAttribute <| Hat.tabindex 0
+        ]
+    <|
         E.text txt
 
 
 showWebsite : Model -> Website -> E.Element Msg
 showWebsite model website =
-    E.el [ E.width E.fill ] <|
+    E.el [ E.width E.fill, E.alignTop ] <|
         case website of
             ( Text text, id ) ->
-                case ( model.focussedNode, model.mode ) of
-                    ( Just focussedId, EditComponentMode ) ->
-                        if focussedId == id then
-                            Ei.multiline [ Ev.onClick (Clicked id) ]
+                case model.mode of
+                    EditComponentMode ->
+                        if Set.member id model.focussedNodes then
+                            Ei.multiline
+                                [ Ev.onFocus <| Clicked id
+                                , Ev.onLoseFocus <| Unclicked id
+                                ]
                                 { onChange = EditText id
                                 , text = text
                                 , placeholder =
                                     Just <|
                                         Ei.placeholder [] <|
                                             E.text "type text here"
-                                , label = Ei.labelHidden "text entry box"
+                                , label =
+                                    Ei.labelHidden
+                                        "text entry box"
                                 , spellcheck = True
                                 }
 
@@ -296,16 +357,15 @@ showWebsite model website =
                         showText text id
 
             ( Row websites, id ) ->
-                Debug.log "newRow" <|
-                    E.row
-                        [ Ev.onClick (Clicked id)
-                        , Eb.width 5
-                        , Eb.solid
-                        , E.height <| E.px 20
-                        , E.width E.fill
-                        ]
-                    <|
-                        List.map (showWebsite model) websites
+                E.row
+                    [ Ev.onClick (Clicked id)
+                    , Eb.width 1
+                    , Eb.dashed
+                    , E.height <| E.px 50
+                    , E.width E.fill
+                    ]
+                <|
+                    List.map (showWebsite model) websites
 
             ( Column websites, id ) ->
                 E.column [] <| List.map (showWebsite model) websites
