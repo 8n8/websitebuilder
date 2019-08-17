@@ -53,6 +53,7 @@ type Component
 
 type Mode
     = InsertTextMode
+    | InsertRowMode
     | SelectorMode
     | EditComponentMode
 
@@ -64,9 +65,10 @@ type Msg
     | EmptyClick
     | EditComponent
     | EditText Int String
-    | Focussed Int
+    | Clicked Int
     | Unfocussed Int
     | Unselect
+    | InsertRow
 
 
 notEmptyErr =
@@ -87,7 +89,14 @@ createTopNode model =
         InsertTextMode ->
             ( { model
                 | website = Just ( Text "Some new text", 0 )
-                , focussedNode = Just 0
+                , maxId = 0
+              }
+            , Cmd.none
+            )
+
+        InsertRowMode ->
+            ( { model
+                | website = Just ( Row [], 0 )
                 , maxId = 0
               }
             , Cmd.none
@@ -137,10 +146,13 @@ editEmptyErr =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        InsertRow ->
+            ( { model | mode = InsertRowMode }, Cmd.none )
+
         Unselect ->
             ( { model | focussedNode = Nothing }, Cmd.none )
 
-        Focussed id ->
+        Clicked id ->
             ( { model | focussedNode = Just id }, Cmd.none )
 
         Unfocussed id ->
@@ -216,10 +228,18 @@ initViewport =
 
 homePage : Model -> E.Element Msg
 homePage model =
-    E.row [ E.width E.fill ] [ emptyOrErrOrFull model model.website model.internalErr, tools model ]
+    E.row
+        [ E.width E.fill ]
+        [ emptyOrErrOrFull model model.website model.internalErr
+        , tools model
+        ]
 
 
-emptyOrErrOrFull : Model -> Maybe Website -> Maybe String -> E.Element Msg
+emptyOrErrOrFull :
+    Model
+    -> Maybe Website
+    -> Maybe String
+    -> E.Element Msg
 emptyOrErrOrFull model website err =
     case err of
         Just e ->
@@ -244,14 +264,9 @@ emptySite =
         []
 
 
-focusses id =
-    [ Ev.onClick (Focussed id)
-    ]
-
-
 showText : String -> Int -> E.Element Msg
 showText txt id =
-    E.el (focusses id) <|
+    E.el [ Ev.onClick (Clicked id) ] <|
         E.text txt
 
 
@@ -260,10 +275,10 @@ showWebsite model website =
     E.el [ E.width E.fill ] <|
         case website of
             ( Text text, id ) ->
-                case ( Debug.log "focussedId" model.focussedNode, model.mode ) of
+                case ( model.focussedNode, model.mode ) of
                     ( Just focussedId, EditComponentMode ) ->
                         if focussedId == id then
-                            Ei.multiline (focusses id)
+                            Ei.multiline [ Ev.onClick (Clicked id) ]
                                 { onChange = EditText id
                                 , text = text
                                 , placeholder =
@@ -280,25 +295,17 @@ showWebsite model website =
                     _ ->
                         showText text id
 
-            -- case model.focussedNode of
-            --     Just focussedId ->
-            --         if focussedId == id then
-            --             Ei.multiline []
-            --                 { onChange = EditText id
-            --                 , text = text
-            --                 , placeholder =
-            --                     Just <|
-            --                         Ei.placeholder [] <|
-            --                             E.text "type text here"
-            --                 , label = Ei.labelHidden "text entry box"
-            --                 , spellcheck = True
-            --                 }
-            --         else
-            --             E.text text
-            --     Nothing ->
-            --         E.text text
             ( Row websites, id ) ->
-                E.row [] <| List.map (showWebsite model) websites
+                Debug.log "newRow" <|
+                    E.row
+                        [ Ev.onClick (Clicked id)
+                        , Eb.width 5
+                        , Eb.solid
+                        , E.height <| E.px 20
+                        , E.width E.fill
+                        ]
+                    <|
+                        List.map (showWebsite model) websites
 
             ( Column websites, id ) ->
                 E.column [] <| List.map (showWebsite model) websites
@@ -306,10 +313,14 @@ showWebsite model website =
 
 tools : Model -> E.Element Msg
 tools model =
-    E.column []
+    E.column [ E.alignTop ]
         [ Ei.button []
             { onPress = Just InsertText
             , label = E.text "Insert text"
+            }
+        , Ei.button []
+            { onPress = Just InsertRow
+            , label = E.text "Insert row"
             }
         , Ei.button []
             { onPress = Just EditComponent
