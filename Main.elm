@@ -56,7 +56,7 @@ type Component
 type Mode
     = InsertTextMode
     | InsertRowMode
-    | SelectorMode
+    | InsertColumnMode
     | EditComponentMode
 
 
@@ -70,6 +70,7 @@ type Msg
     | Clicked Int
     | Unselect
     | InsertRow
+    | InsertColumn
     | Unclicked Int
 
 
@@ -96,6 +97,14 @@ createTopNode model =
             , Cmd.none
             )
 
+        InsertColumnMode ->
+            ( { model
+                | website = Just ( Column [], 0 )
+                , maxId = 0
+              }
+            , Cmd.none
+            )
+
         InsertRowMode ->
             ( { model
                 | website = Just ( Row [], 0 )
@@ -106,11 +115,6 @@ createTopNode model =
 
         EditComponentMode ->
             ( { model | internalErr = Just nothingToEditErr }
-            , Cmd.none
-            )
-
-        SelectorMode ->
-            ( { model | internalErr = Just nothingToSelectErr }
             , Cmd.none
             )
 
@@ -164,6 +168,86 @@ updateWebsiteOnClick model clickId oldWebsite =
                 , id
                 )
 
+        ( ( Row cells, id ), InsertColumnMode ) ->
+            if id == clickId then
+                ( Row <|
+                    ( Column [], model.maxId + 1 )
+                        :: cells
+                , id
+                )
+
+            else
+                ( Row <|
+                    List.map
+                        (updateWebsiteOnClick model clickId)
+                        cells
+                , id
+                )
+
+        ( ( Row cells, id ), InsertRowMode ) ->
+            if id == clickId then
+                ( Row <|
+                    ( Row [], model.maxId + 1 )
+                        :: cells
+                , id
+                )
+
+            else
+                ( Row <|
+                    List.map
+                        (updateWebsiteOnClick model clickId)
+                        cells
+                , id
+                )
+
+        ( ( Column cells, id ), InsertTextMode ) ->
+            if id == clickId then
+                ( Column <|
+                    ( Text "Enter text here", model.maxId + 1 )
+                        :: cells
+                , id
+                )
+
+            else
+                ( Column <|
+                    List.map
+                        (updateWebsiteOnClick model clickId)
+                        cells
+                , id
+                )
+
+        ( ( Column cells, id ), InsertColumnMode ) ->
+            if id == clickId then
+                ( Column <|
+                    ( Column [], model.maxId + 1 )
+                        :: cells
+                , id
+                )
+
+            else
+                ( Column <|
+                    List.map
+                        (updateWebsiteOnClick model clickId)
+                        cells
+                , id
+                )
+
+        ( ( Column cells, id ), InsertRowMode ) ->
+            if id == clickId then
+                ( Column <|
+                    ( Row [], model.maxId + 1 )
+                        :: cells
+                , id
+                )
+
+            else
+                ( Column <|
+                    List.map
+                        (updateWebsiteOnClick model clickId)
+                        cells
+                , id
+                )
+
         _ ->
             oldWebsite
 
@@ -177,13 +261,16 @@ update msg model =
     case msg of
         Unclicked id ->
             ( { model
-                | focussedNodes = Debug.log "focussedNodes after unclick" <| Set.remove id model.focussedNodes
+                | focussedNodes = Set.remove id model.focussedNodes
               }
             , Cmd.none
             )
 
         InsertRow ->
             ( { model | mode = InsertRowMode }, Cmd.none )
+
+        InsertColumn ->
+            ( { model | mode = InsertColumnMode }, Cmd.none )
 
         Unselect ->
             ( { model | focussedNodes = Set.empty }, Cmd.none )
@@ -197,7 +284,8 @@ update msg model =
 
                 Just oldWebsite ->
                     ( { model
-                        | focussedNodes = Debug.log "focussedNodes after click" <| Set.insert id model.focussedNodes
+                        | focussedNodes =
+                            Set.insert id model.focussedNodes
                         , website =
                             Just <|
                                 updateWebsiteOnClick
@@ -252,7 +340,7 @@ update msg model =
 init : () -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ url key =
     ( { viewport = initViewport
-      , mode = SelectorMode
+      , mode = InsertRowMode
       , website = Nothing
       , internalErr = Nothing
       , focussedNodes = Set.empty
@@ -328,7 +416,7 @@ showText txt id =
 
 showWebsite : Model -> Website -> E.Element Msg
 showWebsite model website =
-    E.el [ E.width E.fill, E.alignTop ] <|
+    E.el [ E.width E.fill, E.alignTop, E.height E.fill ] <|
         case website of
             ( Text text, id ) ->
                 case model.mode of
@@ -359,16 +447,32 @@ showWebsite model website =
             ( Row websites, id ) ->
                 E.row
                     [ Ev.onClick (Clicked id)
-                    , Eb.width 1
+                    , Eb.widthXY 1 2
                     , Eb.dashed
-                    , E.height <| E.px 50
+                    , E.height E.fill
                     , E.width E.fill
+                    , E.spacing gap
+                    , E.padding gap
                     ]
                 <|
                     List.map (showWebsite model) websites
 
             ( Column websites, id ) ->
-                E.column [] <| List.map (showWebsite model) websites
+                E.column
+                    [ Ev.onClick (Clicked id)
+                    , Eb.widthXY 2 1
+                    , Eb.dashed
+                    , E.height E.fill
+                    , E.width E.fill
+                    , E.padding gap
+                    , E.spacing gap
+                    ]
+                <|
+                    List.map (showWebsite model) websites
+
+
+gap =
+    20
 
 
 tools : Model -> E.Element Msg
@@ -381,6 +485,10 @@ tools model =
         , Ei.button []
             { onPress = Just InsertRow
             , label = E.text "Insert row"
+            }
+        , Ei.button []
+            { onPress = Just InsertColumn
+            , label = E.text "Insert column"
             }
         , Ei.button []
             { onPress = Just EditComponent
