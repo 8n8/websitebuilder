@@ -149,107 +149,186 @@ editEmptyErr =
     "can't edit text in empty website"
 
 
-updateWebsiteOnClick : Model -> Int -> Website -> Website
+someJust : List (Maybe Website) -> Bool
+someJust mw =
+    List.any ((/=) Nothing) mw
+
+
+updateCells : List Website -> List (Maybe Website) -> List Website
+updateCells olds news =
+    List.map2 updateCell olds news
+
+
+updateCell : Website -> Maybe Website -> Website
+updateCell old maybeNew =
+    case maybeNew of
+        Nothing ->
+            old
+
+        Just new ->
+            new
+
+
+containsIds : Set.Set Int -> Website -> Bool
+containsIds ids ws =
+    List.any (\id -> containsId id ws) <| Set.toList ids
+
+
+containsId : Int -> Website -> Bool
+containsId id ws =
+    case ws of
+        ( Text _, compId ) ->
+            compId == id
+
+        ( Row [], rowId ) ->
+            rowId == id
+
+        ( Row children, rowId ) ->
+            if rowId == id then
+                True
+
+            else
+                List.any (containsId id) children
+
+        ( Column [], colId ) ->
+            colId == id
+
+        ( Column children, colId ) ->
+            if colId == id then
+                True
+
+            else
+                List.any (containsId id) children
+
+
+{-| It decides if parent with ID id has children with an ID in
+focussed.
+
+focussedChildren : Int -> Set.Set Int -> Website -> Bool
+focussedChildren id focussed ws =
+case ws of
+(Text _, _) -> False
+(Row [], id) -> False
+(Row children, rowId) ->
+if rowId == id then
+List.any (focussedChildren
+
+-}
+updateWebsiteOnClick : Model -> Int -> Website -> Maybe Website
 updateWebsiteOnClick model clickId oldWebsite =
     case ( oldWebsite, model.mode ) of
-        ( ( Row cells, id ), InsertTextMode ) ->
-            if id == clickId then
-                ( Row <|
-                    ( Text "Enter text here", model.maxId + 1 )
-                        :: cells
-                , id
-                )
-
-            else
-                ( Row <|
-                    List.map
-                        (updateWebsiteOnClick model clickId)
-                        cells
-                , id
-                )
-
-        ( ( Row cells, id ), InsertColumnMode ) ->
-            if id == clickId then
-                ( Row <|
-                    ( Column [], model.maxId + 1 )
-                        :: cells
-                , id
-                )
-
-            else
-                ( Row <|
-                    List.map
-                        (updateWebsiteOnClick model clickId)
-                        cells
-                , id
-                )
-
+        -- ( ( Row cells, id ), InsertTextMode ) ->
+        --     if id == clickId then
+        --         ( Row <|
+        --             ( Text "Enter text here", model.maxId + 1 )
+        --                 :: cells
+        --         , id
+        --         )
+        --     else
+        --         ( Row <|
+        --             List.map
+        --                 (updateWebsiteOnClick model clickId)
+        --                 cells
+        --         , id
+        --         )
+        -- ( ( Row cells, id ), InsertColumnMode ) ->
+        --     if id == clickId then
+        --         ( Row <|
+        --             ( Column [], model.maxId + 1 )
+        --                 :: cells
+        --         , id
+        --         )
+        --     else
+        --         ( Row <|
+        --             List.map
+        --                 (updateWebsiteOnClick model clickId)
+        --                 cells
+        --         , id
+        --         )
         ( ( Row cells, id ), InsertRowMode ) ->
-            if id == clickId then
-                ( Row <|
-                    ( Row [], model.maxId + 1 )
-                        :: cells
-                , id
-                )
-
-            else
-                ( Row <|
+            let
+                updatedCells =
                     List.map
                         (updateWebsiteOnClick model clickId)
                         cells
-                , id
-                )
 
-        ( ( Column cells, id ), InsertTextMode ) ->
-            if id == clickId then
-                ( Column <|
-                    ( Text "Enter text here", model.maxId + 1 )
-                        :: cells
-                , id
-                )
+                focussedChild =
+                    List.any (containsIds model.focussedNodes) cells
+            in
+            if Debug.log "focussedChild" focussedChild then
+                Nothing
 
-            else
-                ( Column <|
-                    List.map
-                        (updateWebsiteOnClick model clickId)
-                        cells
-                , id
-                )
+            else if someJust updatedCells then
+                Just ( Row <| updateCells cells updatedCells, id )
 
-        ( ( Column cells, id ), InsertColumnMode ) ->
-            if id == clickId then
-                ( Column <|
-                    ( Column [], model.maxId + 1 )
-                        :: cells
-                , id
-                )
+            else if id == clickId then
+                Just
+                    ( Row <|
+                        ( Row [], model.maxId + 1 )
+                            :: cells
+                    , id
+                    )
 
             else
-                ( Column <|
-                    List.map
-                        (updateWebsiteOnClick model clickId)
-                        cells
-                , id
-                )
+                Nothing
 
-        ( ( Column cells, id ), InsertRowMode ) ->
-            if id == clickId then
-                ( Column <|
-                    ( Row [], model.maxId + 1 )
-                        :: cells
-                , id
-                )
-
-            else
-                ( Column <|
-                    List.map
-                        (updateWebsiteOnClick model clickId)
-                        cells
-                , id
-                )
-
+        -- if id == clickId then
+        --     ( Row <|
+        --         ( Row [], model.maxId + 1 )
+        --             :: cells
+        --     , id
+        --     )
+        -- else
+        --     ( Row <|
+        --         List.map
+        --             (updateWebsiteOnClick model clickId)
+        --             cells
+        --     , id
+        --     )
+        -- ( ( Column cells, id ), InsertTextMode ) ->
+        --     if id == clickId then
+        --         ( Column <|
+        --             ( Text "Enter text here", model.maxId + 1 )
+        --                 :: cells
+        --         , id
+        --         )
+        --     else
+        --         ( Column <|
+        --             List.map
+        --                 (updateWebsiteOnClick model clickId)
+        --                 cells
+        --         , id
+        --         )
+        -- ( ( Column cells, id ), InsertColumnMode ) ->
+        --     if id == clickId then
+        --         ( Column <|
+        --             ( Column [], model.maxId + 1 )
+        --                 :: cells
+        --         , id
+        --         )
+        --     else
+        --         ( Column <|
+        --             List.map
+        --                 (updateWebsiteOnClick model clickId)
+        --                 cells
+        --         , id
+        --         )
+        -- ( ( Column cells, id ), InsertRowMode ) ->
+        --     if id == clickId then
+        --         ( Column <|
+        --             ( Row [], model.maxId + 1 )
+        --                 :: cells
+        --         , id
+        --         )
+        --     else
+        --         ( Column <|
+        --             List.map
+        --                 (updateWebsiteOnClick model clickId)
+        --                 cells
+        --         , id
+        --         )
         _ ->
-            oldWebsite
+            Nothing
 
 
 clickNothingErr =
@@ -261,7 +340,7 @@ update msg model =
     case msg of
         Unclicked id ->
             ( { model
-                | focussedNodes = Set.remove id model.focussedNodes
+                | focussedNodes = Set.remove (Debug.log "unclicked id" id) model.focussedNodes
               }
             , Cmd.none
             )
@@ -279,23 +358,37 @@ update msg model =
             case model.website of
                 Nothing ->
                     ( { model | internalErr = Just clickNothingErr }
-                    , Cmd.none
+                    , Debug.log "Clicked - Nothing" Cmd.none
                     )
 
                 Just oldWebsite ->
-                    ( { model
-                        | focussedNodes =
-                            Set.insert id model.focussedNodes
-                        , website =
-                            Just <|
-                                updateWebsiteOnClick
-                                    model
-                                    id
-                                    oldWebsite
-                        , maxId = model.maxId + 1
-                      }
-                    , Cmd.none
-                    )
+                    case updateWebsiteOnClick model id oldWebsite of
+                        Nothing ->
+                            ( Debug.log "model if site not updated"
+                                { model
+                                    | focussedNodes =
+                                        Set.insert
+                                            (Debug.log "id" id)
+                                            model.focussedNodes
+                                }
+                            , Cmd.none
+                            )
+
+                        Just newSite ->
+                            ( Debug.log "model"
+                                { model
+                                    | focussedNodes =
+                                        Set.insert
+                                            (model.maxId + 1)
+                                        <|
+                                            Set.insert
+                                                id
+                                                model.focussedNodes
+                                    , website = Just newSite
+                                    , maxId = model.maxId + 1
+                                }
+                            , Cmd.none
+                            )
 
         EditText id newText ->
             case model.website of
@@ -447,6 +540,8 @@ showWebsite model website =
             ( Row websites, id ) ->
                 E.row
                     [ Ev.onClick (Clicked id)
+                    , Ev.onLoseFocus (Unclicked id)
+                    , E.htmlAttribute <| Hat.tabindex 0
                     , Eb.widthXY 1 2
                     , Eb.dashed
                     , E.height E.fill
