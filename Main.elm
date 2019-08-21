@@ -192,7 +192,7 @@ childest id1 id2 ws =
                     Just childId
 
         _ ->
-            Debug.log "not defined yet" Nothing
+            Nothing
 
 
 
@@ -454,34 +454,31 @@ update msg model =
             ( { model | focussedNode = Nothing }, Cmd.none )
 
         Clicked id ->
-            Debug.log "Clicked model" <|
-                ( if model.mode == SelectionMode then
-                    case ( model.focussedNode, model.website ) of
-                        ( Nothing, Just _ ) ->
-                            Debug.log "Nothing, Just _" <|
-                                { model | focussedNode = Just id }
+            ( if model.mode == SelectionMode then
+                case ( model.focussedNode, model.website ) of
+                    ( Nothing, Just _ ) ->
+                        { model | focussedNode = Just id }
 
-                        ( Just lastFocus, Just website ) ->
-                            Debug.log "Just lastFocus, Just website" <|
-                                { model
-                                    | focussedNode =
-                                        childest
-                                            lastFocus
-                                            id
-                                            website
-                                }
+                    ( Just lastFocus, Just website ) ->
+                        { model
+                            | focussedNode =
+                                childest
+                                    lastFocus
+                                    id
+                                    website
+                        }
 
-                        _ ->
-                            { model
-                                | internalErr =
-                                    Just
-                                        clickNothingErr
-                            }
+                    _ ->
+                        { model
+                            | internalErr =
+                                Just
+                                    clickNothingErr
+                        }
 
-                  else
-                    model
-                , Cmd.none
-                )
+              else
+                model
+            , Cmd.none
+            )
 
         -- Debug.log "clicked" <|
         --     case model.website of
