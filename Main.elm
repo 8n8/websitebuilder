@@ -266,9 +266,9 @@ if rowId == id then
 List.any (focussedChildren
 
 -}
-updateWebsiteOnClick : Model -> Int -> Website -> Maybe Website
-updateWebsiteOnClick model clickId oldWebsite =
-    case ( oldWebsite, model.mode ) of
+updateWebsiteOnClick : Model -> Website -> Maybe Website
+updateWebsiteOnClick model oldWebsite =
+    case oldWebsite of
         -- ( ( Row cells, id ), InsertTextMode ) ->
         --     if id == clickId then
         --         ( Row <|
@@ -297,13 +297,13 @@ updateWebsiteOnClick model clickId oldWebsite =
         --                 cells
         --         , id
         --         )
-        ( ( Row cells, id ), InsertRowMode ) ->
+        ( Row cells, id ) ->
             case model.focussedNode of
                 Nothing ->
                     Nothing
 
                 Just fId ->
-                    if fId == id && fId == clickId then
+                    if fId == id then
                         Just
                             ( Row <|
                                 ( Row [], model.maxId + 1 )
@@ -315,7 +315,7 @@ updateWebsiteOnClick model clickId oldWebsite =
                         let
                             updatedCells =
                                 List.map
-                                    (updateWebsiteOnClick model clickId)
+                                    (updateWebsiteOnClick model)
                                     cells
                         in
                         Just
@@ -404,9 +404,27 @@ update msg model =
             ( { model | mode = SelectionMode }, Cmd.none )
 
         InsertRow ->
-            ( { model
-                | mode = InsertRowMode
-              }
+            ( case model.website of
+                Nothing ->
+                    { model | website = Just ( Row [], 0 ) }
+
+                Just website ->
+                    case model.focussedNode of
+                        Nothing ->
+                            model
+
+                        Just _ ->
+                            case updateWebsiteOnClick model website of
+                                Just newSite ->
+                                    { model
+                                        | website = Just newSite
+                                        , mode = None
+                                        , focussedNode = Nothing
+                                        , maxId = model.maxId + 1
+                                    }
+
+                                Nothing ->
+                                    model
             , Cmd.none
             )
 
@@ -440,28 +458,7 @@ update msg model =
                             }
 
                   else
-                    case model.website of
-                        Nothing ->
-                            { model
-                                | internalErr = Just clickNothingErr
-                            }
-
-                        Just website ->
-                            case model.focussedNode of
-                                Nothing ->
-                                    model
-
-                                Just _ ->
-                                    case updateWebsiteOnClick model id website of
-                                        Just newSite ->
-                                            { model
-                                                | website = Just newSite
-                                                , mode = None
-                                                , maxId = model.maxId + 1
-                                            }
-
-                                        Nothing ->
-                                            model
+                    model
                 , Cmd.none
                 )
 
