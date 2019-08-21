@@ -37,7 +37,7 @@ type alias Model =
     { viewport : Dom.Viewport
     , mode : Mode
     , website : Maybe Website
-    , focussedNodes : Set.Set Int
+    , focussedNode : Maybe Int
     , internalErr : Maybe String
     , maxId : Int
     , freezeAddChild : Bool
@@ -59,6 +59,8 @@ type Mode
     | InsertRowMode
     | InsertColumnMode
     | EditComponentMode
+    | SelectionMode
+    | None
 
 
 type Msg
@@ -73,6 +75,7 @@ type Msg
     | InsertRow
     | InsertColumn
     | Unclicked Int
+    | Select
 
 
 notEmptyErr =
@@ -89,35 +92,15 @@ nothingToEditErr =
 
 createTopNode : Model -> ( Model, Cmd Msg )
 createTopNode model =
-    case model.mode of
-        InsertTextMode ->
-            ( { model
-                | website = Just ( Text "Some new text", 0 )
-                , maxId = 0
-              }
-            , Cmd.none
-            )
+    ( { model
+        | website = Just ( Row [], 0 )
+      }
+    , Cmd.none
+    )
 
-        InsertColumnMode ->
-            ( { model
-                | website = Just ( Column [], 0 )
-                , maxId = 0
-              }
-            , Cmd.none
-            )
 
-        InsertRowMode ->
-            ( { model
-                | website = Just ( Row [], 0 )
-                , maxId = 0
-              }
-            , Cmd.none
-            )
-
-        EditComponentMode ->
-            ( { model | internalErr = Just nothingToEditErr }
-            , Cmd.none
-            )
+selectNothingErr =
+    "can't select something that isn't there"
 
 
 updateTextNode : Int -> String -> Website -> Website
@@ -150,6 +133,16 @@ editEmptyErr =
     "can't edit text in empty website"
 
 
+firstJust : List (Maybe Int) -> Maybe Int
+firstJust ms =
+    case List.filter (\x -> x /= Nothing) ms of
+        [] ->
+            Nothing
+
+        head :: _ ->
+            head
+
+
 someJust : List (Maybe Website) -> Bool
 someJust mw =
     List.any ((/=) Nothing) mw
@@ -168,6 +161,64 @@ updateCell old maybeNew =
 
         Just new ->
             new
+
+
+childest : Int -> Int -> Website -> Maybe Int
+childest id1 id2 ws =
+    case ws of
+        ( Text _, id ) ->
+            if id == id1 then
+                Just id1
+
+            else if id == id2 then
+                Just id2
+
+            else
+                Nothing
+
+        ( Row cells, id ) ->
+            case firstJust <| List.map (childest id1 id2) cells of
+                Nothing ->
+                    if id == id1 then
+                        Just id1
+
+                    else if id == id2 then
+                        Just id2
+
+                    else
+                        Nothing
+
+                Just childId ->
+                    Just childId
+
+        _ ->
+            Debug.log "not defined yet" Nothing
+
+
+
+-- let
+--     id1InCell = List.map (containsId id1) cells
+--     id1InCells = List.any id1InCell
+--     id2InCell = List.map (containsId id2) cells
+--     id2InCells = List.any id2InCell
+-- in
+-- case ( id == id1, id == id2, id1InCells, id2InCells ) of
+--     (False, False, False, False) -> Nothing
+--     (False, False, False, True) -> Nothing
+--     (False, False, True, False) -> Nothing
+--     (False, False, True, True) ->
+--     (False, True, False, False) ->
+--     (False, True, False, True) ->
+--     (False, True, True, False) ->
+--     (False, True, True, True) ->
+--     (True, False, False, False) ->
+--     (True, False, False, True) ->
+--     (True, False, True, False) ->
+--     (True, False, True, True) ->
+--     (True, True, False, False) ->
+--     (True, True, False, True) ->
+--     (True, True, True, False) ->
+--     (True, True, True, True) ->
 
 
 containsIds : Set.Set Int -> Website -> Bool
@@ -247,34 +298,40 @@ updateWebsiteOnClick model clickId oldWebsite =
         --         , id
         --         )
         ( ( Row cells, id ), InsertRowMode ) ->
-            let
-                focussedChild =
-                    Debug.log "focussedChild" <|
-                        List.any (containsIds model.focussedNodes) cells
-            in
-            if focussedChild && id == clickId then
-                Debug.log "Do nothing" Nothing
+            case model.focussedNode of
+                Nothing ->
+                    Nothing
 
-            else if id == clickId then
-                Debug.log "only id == clickId" <|
-                    Just
-                        ( Row <|
-                            ( Row [], model.maxId + 1 )
-                                :: cells
-                        , id
-                        )
+                Just fId ->
+                    if fId == id && fId == clickId then
+                        Just
+                            ( Row <|
+                                ( Row [], model.maxId + 1 )
+                                    :: cells
+                            , id
+                            )
 
-            else
-                Debug.log "Recursive update" <|
-                    let
-                        updatedCells =
-                            List.map
-                                (updateWebsiteOnClick model clickId)
-                                cells
-                    in
-                    Just ( Row <| updateCells cells updatedCells, id )
+                    else
+                        let
+                            updatedCells =
+                                List.map
+                                    (updateWebsiteOnClick model clickId)
+                                    cells
+                        in
+                        Just
+                            ( Row <|
+                                updateCells cells updatedCells
+                            , id
+                            )
 
-        -- if id == clickId then
+        --     let
+        --         updatedCells =
+        --             List.map
+        --                 (updateWebsiteOnClick model)
+        --                 cells
+        --     in
+        --     Just ( Row <| updateCells cells updatedCells, id )
+        -- -- if id == clickId then
         --     ( Row <|
         --         ( Row [], model.maxId + 1 )
         --             :: cells
@@ -341,17 +398,14 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Unclicked id ->
-            ( { model
-                | focussedNodes = Set.remove (Debug.log "unclicked id" id) model.focussedNodes
-              }
-            , Cmd.none
-            )
+            ( { model | focussedNode = Nothing }, Cmd.none )
+
+        Select ->
+            ( { model | mode = SelectionMode }, Cmd.none )
 
         InsertRow ->
             ( { model
                 | mode = InsertRowMode
-                , focussedNodes = Set.empty
-                , freezeAddChild = False
               }
             , Cmd.none
             )
@@ -360,48 +414,92 @@ update msg model =
             ( { model | mode = InsertColumnMode }, Cmd.none )
 
         Unselect ->
-            ( { model | focussedNodes = Set.empty }, Cmd.none )
+            ( { model | focussedNode = Nothing }, Cmd.none )
 
         Clicked id ->
-            Debug.log "clicked" <|
-                case model.website of
-                    Nothing ->
-                        ( { model | internalErr = Just clickNothingErr }
-                        , Cmd.none
-                        )
+            Debug.log "Clicked model" <|
+                ( if model.mode == SelectionMode then
+                    case ( model.focussedNode, model.website ) of
+                        ( Nothing, Just _ ) ->
+                            { model | focussedNode = Just id }
 
-                    Just oldWebsite ->
-                        if model.freezeAddChild then
-                            ( model, Cmd.none )
+                        ( Just lastFocus, Just website ) ->
+                            { model
+                                | focussedNode =
+                                    childest
+                                        lastFocus
+                                        id
+                                        website
+                            }
 
-                        else
-                            case updateWebsiteOnClick model id oldWebsite of
+                        _ ->
+                            { model
+                                | internalErr =
+                                    Just
+                                        clickNothingErr
+                            }
+
+                  else
+                    case model.website of
+                        Nothing ->
+                            { model
+                                | internalErr = Just clickNothingErr
+                            }
+
+                        Just website ->
+                            case model.focussedNode of
                                 Nothing ->
-                                    ( { model
-                                        | focussedNodes =
-                                            Set.insert
-                                                (Debug.log "id" id)
-                                                model.focussedNodes
-                                      }
-                                    , Cmd.none
-                                    )
+                                    model
 
-                                Just newSite ->
-                                    ( { model
-                                        | focussedNodes =
-                                            Set.insert
-                                                (model.maxId + 1)
-                                            <|
-                                                Set.insert
-                                                    id
-                                                    model.focussedNodes
-                                        , website = Just newSite
-                                        , maxId = model.maxId + 1
-                                        , freezeAddChild = True
-                                      }
-                                    , Cmd.none
-                                    )
+                                Just _ ->
+                                    case updateWebsiteOnClick model id website of
+                                        Just newSite ->
+                                            { model
+                                                | website = Just newSite
+                                                , mode = None
+                                                , maxId = model.maxId + 1
+                                            }
 
+                                        Nothing ->
+                                            model
+                , Cmd.none
+                )
+
+        -- Debug.log "clicked" <|
+        --     case model.website of
+        --         Nothing ->
+        --             ( { model | internalErr = Just clickNothingErr }
+        --             , Cmd.none
+        --             )
+        --         Just oldWebsite ->
+        --             if model.freezeAddChild then
+        --                 ( model, Cmd.none )
+        --             else
+        --                 case updateWebsiteOnClick model id oldWebsite of
+        --                     Nothing ->
+        --                         ( { model
+        --                             | focussedNodes =
+        --                                 Set.insert
+        --                                     (Debug.log "id" id)
+        --                                     model.focussedNodes
+        --                           }
+        --                         , Cmd.none
+        --                         )
+        --                     Just newSite ->
+        --                         ( { model
+        --                             | focussedNodes =
+        --                                 Set.insert
+        --                                     (model.maxId + 1)
+        --                                 <|
+        --                                     Set.insert
+        --                                         id
+        --                                         model.focussedNodes
+        --                             , website = Just newSite
+        --                             , maxId = model.maxId + 1
+        --                             , freezeAddChild = True
+        --                           }
+        --                         , Cmd.none
+        --                         )
         EditText id newText ->
             case model.website of
                 Just ws ->
@@ -421,13 +519,14 @@ update msg model =
             ( { model | mode = EditComponentMode }, Cmd.none )
 
         EmptyClick ->
-            case model.website of
-                Just _ ->
-                    ( { model | internalErr = Just notEmptyErr }
-                    , Cmd.none
-                    )
+            case model.mode of
+                None ->
+                    ( model, Cmd.none )
 
-                Nothing ->
+                SelectionMode ->
+                    ( model, Cmd.none )
+
+                _ ->
                     createTopNode model
 
         InsertText ->
@@ -445,10 +544,10 @@ update msg model =
 init : () -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
 init _ url key =
     ( { viewport = initViewport
-      , mode = InsertRowMode
+      , mode = None
       , website = Nothing
       , internalErr = Nothing
-      , focussedNodes = Set.empty
+      , focussedNode = Nothing
       , maxId = 0
       , freezeAddChild = True
       }
@@ -527,7 +626,7 @@ showWebsite model website =
             ( Text text, id ) ->
                 case model.mode of
                     EditComponentMode ->
-                        if Set.member id model.focussedNodes then
+                        if model.focussedNode == Just id then
                             Ei.multiline
                                 [ Ev.onFocus <| Clicked id
                                 , Ev.onLoseFocus <| Unclicked id
@@ -600,6 +699,10 @@ tools model =
         , Ei.button []
             { onPress = Just EditComponent
             , label = E.text "Edit"
+            }
+        , Ei.button []
+            { onPress = Just Select
+            , label = E.text "Select"
             }
         , Ei.button []
             { onPress = Just Unselect
