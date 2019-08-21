@@ -226,6 +226,20 @@ containsIds ids ws =
     List.any (\id -> containsId id ws) <| Set.toList ids
 
 
+emphasised : Maybe Int -> Int -> E.Attribute Msg
+emphasised focussed id =
+    case focussed of
+        Nothing ->
+            Eb.dotted
+
+        Just f ->
+            if f == id then
+                Eb.dashed
+
+            else
+                Eb.dotted
+
+
 containsId : Int -> Website -> Bool
 containsId id ws =
     case ws of
@@ -401,7 +415,12 @@ update msg model =
             ( { model | focussedNode = Nothing }, Cmd.none )
 
         Select ->
-            ( { model | mode = SelectionMode }, Cmd.none )
+            ( { model
+                | mode = SelectionMode
+                , focussedNode = Nothing
+              }
+            , Cmd.none
+            )
 
         InsertRow ->
             ( case model.website of
@@ -439,16 +458,18 @@ update msg model =
                 ( if model.mode == SelectionMode then
                     case ( model.focussedNode, model.website ) of
                         ( Nothing, Just _ ) ->
-                            { model | focussedNode = Just id }
+                            Debug.log "Nothing, Just _" <|
+                                { model | focussedNode = Just id }
 
                         ( Just lastFocus, Just website ) ->
-                            { model
-                                | focussedNode =
-                                    childest
-                                        lastFocus
-                                        id
-                                        website
-                            }
+                            Debug.log "Just lastFocus, Just website" <|
+                                { model
+                                    | focussedNode =
+                                        childest
+                                            lastFocus
+                                            id
+                                            website
+                                }
 
                         _ ->
                             { model
@@ -649,9 +670,9 @@ showWebsite model website =
             ( Row websites, id ) ->
                 E.row
                     [ Ev.onClick (Clicked id)
+                    , emphasised model.focussedNode id
                     , E.htmlAttribute <| Hat.tabindex 0
                     , Eb.widthXY 1 2
-                    , Eb.dashed
                     , E.height E.fill
                     , E.width E.fill
                     , E.spacing gap
