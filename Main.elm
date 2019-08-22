@@ -44,6 +44,36 @@ type alias Model =
     }
 
 
+insertComponent :
+    Model
+    -> Component
+    -> ( Model, Cmd Msg )
+insertComponent model component =
+    ( case model.website of
+        Nothing ->
+            { model | website = Just ( component, 0 ) }
+
+        Just website ->
+            case model.focussedNode of
+                Nothing ->
+                    model
+
+                Just _ ->
+                    case updateWebsiteOnClick model component website of
+                        Just newSite ->
+                            { model
+                                | website = Just newSite
+                                , mode = None
+                                , focussedNode = Nothing
+                                , maxId = model.maxId + 1
+                            }
+
+                        Nothing ->
+                            model
+    , Cmd.none
+    )
+
+
 type alias Website =
     ( Component, Int )
 
@@ -191,8 +221,20 @@ childest id1 id2 ws =
                 Just childId ->
                     Just childId
 
-        _ ->
-            Nothing
+        ( Column cells, id ) ->
+            case firstJust <| List.map (childest id1 id2) cells of
+                Nothing ->
+                    if id == id1 then
+                        Just id1
+
+                    else if id == id2 then
+                        Just id2
+
+                    else
+                        Nothing
+
+                Just childId ->
+                    Just childId
 
 
 
@@ -230,14 +272,14 @@ emphasised : Maybe Int -> Int -> E.Attribute Msg
 emphasised focussed id =
     case focussed of
         Nothing ->
-            Eb.dotted
+            paleBlue
 
         Just f ->
             if f == id then
-                Eb.dashed
+                darkBlue
 
             else
-                Eb.dotted
+                paleBlue
 
 
 containsId : Int -> Website -> Bool
@@ -280,8 +322,8 @@ if rowId == id then
 List.any (focussedChildren
 
 -}
-updateWebsiteOnClick : Model -> Website -> Maybe Website
-updateWebsiteOnClick model oldWebsite =
+updateWebsiteOnClick : Model -> Component -> Website -> Maybe Website
+updateWebsiteOnClick model component oldWebsite =
     case oldWebsite of
         -- ( ( Row cells, id ), InsertTextMode ) ->
         --     if id == clickId then
@@ -311,33 +353,38 @@ updateWebsiteOnClick model oldWebsite =
         --                 cells
         --         , id
         --         )
+        ( Column cells, id ) ->
+            updateRowOrCol model id cells component Column
+
         ( Row cells, id ) ->
-            case model.focussedNode of
-                Nothing ->
-                    Nothing
+            updateRowOrCol model id cells component Row
 
-                Just fId ->
-                    if fId == id then
-                        Just
-                            ( Row <|
-                                ( Row [], model.maxId + 1 )
-                                    :: cells
-                            , id
-                            )
+        {- case model.focussedNode of
+           Nothing ->
+               Nothing
 
-                    else
-                        let
-                            updatedCells =
-                                List.map
-                                    (updateWebsiteOnClick model)
-                                    cells
-                        in
-                        Just
-                            ( Row <|
-                                updateCells cells updatedCells
-                            , id
-                            )
+           Just fId ->
+               if fId == id then
+                   Just
+                       ( Row <|
+                           ( Row [], model.maxId + 1 )
+                               :: cells
+                       , id
+                       )
 
+               else
+                   let
+                       updatedCells =
+                           List.map
+                               (updateWebsiteOnClick model)
+                               cells
+                   in
+                   Just
+                       ( Row <|
+                           updateCells cells updatedCells
+                       , id
+                       )
+        -}
         --     let
         --         updatedCells =
         --             List.map
@@ -404,6 +451,54 @@ updateWebsiteOnClick model oldWebsite =
             Nothing
 
 
+updateRowOrCol :
+    Model
+    -> Int
+    -> List Website
+    -> Component
+    -> (List Website -> Component)
+    -> Maybe Website
+updateRowOrCol model id cells component rowOrCol =
+    case model.focussedNode of
+        Nothing ->
+            Nothing
+
+        Just fId ->
+            if fId == id then
+                Just
+                    ( rowOrCol <|
+                        ( component, model.maxId + 1 )
+                            :: cells
+                    , id
+                    )
+
+            else
+                let
+                    updatedCells =
+                        List.map
+                            (updateWebsiteOnClick model component)
+                            cells
+                in
+                Just
+                    ( rowOrCol <|
+                        updateCells cells updatedCells
+                    , id
+                    )
+
+
+colOrRow : Mode -> Maybe (List Website -> Component)
+colOrRow mode =
+    case mode of
+        InsertRowMode ->
+            Just Row
+
+        InsertColumnMode ->
+            Just Column
+
+        _ ->
+            Nothing
+
+
 clickNothingErr =
     "can't click on something that isn't there"
 
@@ -423,33 +518,32 @@ update msg model =
             )
 
         InsertRow ->
-            ( case model.website of
-                Nothing ->
-                    { model | website = Just ( Row [], 0 ) }
+            insertComponent model (Row [])
 
-                Just website ->
-                    case model.focussedNode of
-                        Nothing ->
-                            model
-
-                        Just _ ->
-                            case updateWebsiteOnClick model website of
-                                Just newSite ->
-                                    { model
-                                        | website = Just newSite
-                                        , mode = None
-                                        , focussedNode = Nothing
-                                        , maxId = model.maxId + 1
-                                    }
-
-                                Nothing ->
-                                    model
-            , Cmd.none
-            )
-
+        -- ( case model.website of
+        --     Nothing ->
+        --         { model | website = Just ( Row [], 0 ) }
+        --     Just website ->
+        --         case model.focussedNode of
+        --             Nothing ->
+        --                 model
+        --             Just _ ->
+        --                 case updateWebsiteOnClick model website of
+        --                     Just newSite ->
+        --                         { model
+        --                             | website = Just newSite
+        --                             , mode = None
+        --                             , focussedNode = Nothing
+        --                             , maxId = model.maxId + 1
+        --                         }
+        --                     Nothing ->
+        --                         model
+        -- , Cmd.none
+        -- )
         InsertColumn ->
-            ( { model | mode = InsertColumnMode }, Cmd.none )
+            insertComponent model (Column [])
 
+        -- ( { model | mode = InsertColumnMode }, Cmd.none )
         Unselect ->
             ( { model | focussedNode = Nothing }, Cmd.none )
 
@@ -669,9 +763,10 @@ showWebsite model website =
                     [ Ev.onClick (Clicked id)
                     , emphasised model.focussedNode id
                     , E.htmlAttribute <| Hat.tabindex 0
-                    , Eb.widthXY 1 2
+                    , Eb.widthXY 1 4
                     , E.height E.fill
                     , E.width E.fill
+                    , Eb.dashed
                     , E.spacing gap
                     , E.padding gap
                     ]
@@ -681,15 +776,24 @@ showWebsite model website =
             ( Column websites, id ) ->
                 E.column
                     [ Ev.onClick (Clicked id)
-                    , Eb.widthXY 2 1
-                    , Eb.dashed
+                    , emphasised model.focussedNode id
+                    , Eb.widthXY 4 1
                     , E.height E.fill
                     , E.width E.fill
+                    , Eb.dashed
                     , E.padding gap
                     , E.spacing gap
                     ]
                 <|
                     List.map (showWebsite model) websites
+
+
+paleBlue =
+    Eb.color <| E.rgb255 195 214 247
+
+
+darkBlue =
+    Eb.color <| E.rgb255 29 93 204
 
 
 gap =
