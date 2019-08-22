@@ -639,7 +639,7 @@ update msg model =
                     createTopNode model
 
         InsertText ->
-            ( { model | mode = InsertTextMode }, Cmd.none )
+            insertComponent { model | mode = InsertTextMode } (Text "Insert some text here")
 
         Viewport vp ->
             ( { model | viewport = vp }
