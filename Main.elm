@@ -88,7 +88,7 @@ type Mode
     = InsertTextMode
     | InsertRowMode
     | InsertColumnMode
-    | EditComponentMode
+    | EditTextMode
     | SelectionMode
     | None
 
@@ -98,7 +98,7 @@ type Msg
     | Viewport Dom.Viewport
     | InsertText
     | EmptyClick
-    | EditComponent
+    | EditTextButton
     | EditText Int String
     | Clicked Int
     | Unselect
@@ -266,6 +266,22 @@ childest id1 id2 ws =
 containsIds : Set.Set Int -> Website -> Bool
 containsIds ids ws =
     List.any (\id -> containsId id ws) <| Set.toList ids
+
+
+textSelectStyle : Maybe Int -> Int -> List (E.Attribute Msg)
+textSelectStyle maybeFId id =
+    case maybeFId of
+        Nothing ->
+            []
+
+        Just fId ->
+            if fId == id then
+                [ Eb.width 3
+                , darkBlue
+                ]
+
+            else
+                []
 
 
 emphasised : Maybe Int -> Int -> E.Attribute Msg
@@ -548,31 +564,32 @@ update msg model =
             ( { model | focussedNode = Nothing }, Cmd.none )
 
         Clicked id ->
-            ( if model.mode == SelectionMode then
-                case ( model.focussedNode, model.website ) of
-                    ( Nothing, Just _ ) ->
-                        { model | focussedNode = Just id }
+            Debug.log "Clicked id ->"
+                ( if model.mode == SelectionMode then
+                    case ( model.focussedNode, model.website ) of
+                        ( Nothing, Just _ ) ->
+                            { model | focussedNode = Just id }
 
-                    ( Just lastFocus, Just website ) ->
-                        { model
-                            | focussedNode =
-                                childest
-                                    lastFocus
-                                    id
-                                    website
-                        }
+                        ( Just lastFocus, Just website ) ->
+                            { model
+                                | focussedNode =
+                                    childest
+                                        lastFocus
+                                        id
+                                        website
+                            }
 
-                    _ ->
-                        { model
-                            | internalErr =
-                                Just
-                                    clickNothingErr
-                        }
+                        _ ->
+                            { model
+                                | internalErr =
+                                    Just
+                                        clickNothingErr
+                            }
 
-              else
-                model
-            , Cmd.none
-            )
+                  else
+                    model
+                , Cmd.none
+                )
 
         -- Debug.log "clicked" <|
         --     case model.website of
@@ -624,8 +641,8 @@ update msg model =
                     , Cmd.none
                     )
 
-        EditComponent ->
-            ( { model | mode = EditComponentMode }, Cmd.none )
+        EditTextButton ->
+            ( { model | mode = EditTextMode }, Cmd.none )
 
         EmptyClick ->
             case model.mode of
@@ -717,13 +734,14 @@ emptySite =
         []
 
 
-showText : String -> Int -> E.Element Msg
-showText txt id =
+showText : String -> Int -> Maybe Int -> E.Element Msg
+showText txt id maybeFocussed =
     E.el
-        [ Ev.onFocus (Clicked id)
-        , Ev.onLoseFocus (Unclicked id)
-        , E.htmlAttribute <| Hat.tabindex 0
-        ]
+        ([ Ev.onFocus (Clicked id)
+         , E.htmlAttribute <| Hat.tabindex 0
+         ]
+            ++ textSelectStyle maybeFocussed id
+        )
     <|
         E.text txt
 
@@ -734,7 +752,7 @@ showWebsite model website =
         case website of
             ( Text text, id ) ->
                 case model.mode of
-                    EditComponentMode ->
+                    EditTextMode ->
                         if model.focussedNode == Just id then
                             Ei.multiline
                                 [ Ev.onFocus <| Clicked id
@@ -753,10 +771,10 @@ showWebsite model website =
                                 }
 
                         else
-                            showText text id
+                            showText text id model.focussedNode
 
                     _ ->
-                        showText text id
+                        showText text id model.focussedNode
 
             ( Row websites, id ) ->
                 E.row
@@ -816,8 +834,8 @@ tools model =
             , label = E.text "Insert column"
             }
         , Ei.button []
-            { onPress = Just EditComponent
-            , label = E.text "Edit"
+            { onPress = Just EditTextButton
+            , label = E.text "Edit text"
             }
         , Ei.button []
             { onPress = Just Select
