@@ -3,14 +3,12 @@ module Main exposing (main)
 import Browser
 import Browser.Dom as Dom
 import Browser.Navigation as Nav
+import Debug
 import Element as E
-import Element.Background as Back
 import Element.Border as Eb
 import Element.Events as Ev
 import Element.Input as Ei
 import Html.Attributes as Hat
-import Html.Events as Hev
-import Json.Decode as Jd
 import Set
 import Task
 import Url
@@ -43,17 +41,7 @@ type alias Model =
     , internalErr : Maybe String
     , maxId : Int
     , freezeAddChild : Bool
-    , toolPosX : Int
-    , toolPosY : Int
-    , dragging : Bool
     }
-
-
-decoder : Jd.Decoder MouseMoveData
-decoder =
-    Jd.map2 MouseMoveData
-        (Jd.at [ "offsetX" ] Jd.int)
-        (Jd.at [ "offsetY" ] Jd.int)
 
 
 insertComponent :
@@ -71,12 +59,7 @@ insertComponent model component =
                     model
 
                 Just _ ->
-                    case
-                        updateWebsiteOnClick
-                            model
-                            component
-                            website
-                    of
+                    case updateWebsiteOnClick model component website of
                         Just newSite ->
                             { model
                                 | website = Just newSite
@@ -113,10 +96,6 @@ type Mode
 type Msg
     = DoNothing
     | Viewport Dom.Viewport
-    | Drag
-    | Undrag
-    | MouseMove MouseMoveData
-    | NoneMode
     | InsertText
     | EmptyClick
     | EditTextButton
@@ -184,7 +163,7 @@ editEmptyErr =
     "can't edit text in empty website"
 
 
-firstJust : List (Maybe a) -> Maybe a
+firstJust : List (Maybe Int) -> Maybe Int
 firstJust ms =
     case List.filter (\x -> x /= Nothing) ms of
         [] ->
@@ -543,23 +522,6 @@ clickNothingErr =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        Undrag ->
-            ( { model | dragging = False }, Cmd.none )
-
-        Drag ->
-            ( { model | dragging = True }, Cmd.none )
-
-        MouseMove dat ->
-            ( { model
-                | toolPosX = dat.x
-                , toolPosY = dat.y
-              }
-            , Cmd.none
-            )
-
-        NoneMode ->
-            ( { model | mode = None }, Cmd.none )
-
         Unclicked id ->
             ( { model | focussedNode = Nothing }, Cmd.none )
 
@@ -602,27 +564,32 @@ update msg model =
             ( { model | focussedNode = Nothing }, Cmd.none )
 
         Clicked id ->
-            ( case ( model.focussedNode, model.website ) of
-                ( Nothing, Just _ ) ->
-                    { model | focussedNode = Just id }
+            Debug.log "Clicked id ->"
+                ( if model.mode == SelectionMode then
+                    case ( model.focussedNode, model.website ) of
+                        ( Nothing, Just _ ) ->
+                            { model | focussedNode = Just id }
 
-                ( Just lastFocus, Just website ) ->
-                    { model
-                        | focussedNode =
-                            childest
-                                lastFocus
-                                id
-                                website
-                    }
+                        ( Just lastFocus, Just website ) ->
+                            { model
+                                | focussedNode =
+                                    childest
+                                        lastFocus
+                                        id
+                                        website
+                            }
 
-                _ ->
-                    { model
-                        | internalErr =
-                            Just
-                                clickNothingErr
-                    }
-            , Cmd.none
-            )
+                        _ ->
+                            { model
+                                | internalErr =
+                                    Just
+                                        clickNothingErr
+                            }
+
+                  else
+                    model
+                , Cmd.none
+                )
 
         -- Debug.log "clicked" <|
         --     case model.website of
@@ -709,9 +676,6 @@ init _ url key =
       , focussedNode = Nothing
       , maxId = 0
       , freezeAddChild = True
-      , dragging = False
-      , toolPosX = 0
-      , toolPosY = 0
       }
     , Task.perform Viewport Dom.getViewport
     )
@@ -735,10 +699,9 @@ initViewport =
 homePage : Model -> E.Element Msg
 homePage model =
     E.row
-        [ E.width E.fill
-        , E.inFront <| tools model
-        ]
+        [ E.width E.fill ]
         [ emptyOrErrOrFull model model.website model.internalErr
+        , tools model
         ]
 
 
@@ -785,22 +748,7 @@ showText txt id maybeFocussed =
 
 showWebsite : Model -> Website -> E.Element Msg
 showWebsite model website =
-    E.el
-        ([ E.width E.fill
-         , E.alignTop
-         , E.height E.fill
-         ]
-            ++ (if model.dragging then
-                    [ E.htmlAttribute <|
-                        Hev.on "mousemove" <|
-                            Jd.map MouseMove decoder
-                    ]
-
-                else
-                    []
-               )
-        )
-    <|
+    E.el [ E.width E.fill, E.alignTop, E.height E.fill ] <|
         case website of
             ( Text text, id ) ->
                 case model.mode of
@@ -834,7 +782,7 @@ showWebsite model website =
                     , emphasised model.focussedNode id
                     , E.htmlAttribute <| Hat.tabindex 0
                     , Eb.widthXY 1 4
-                    , E.height <| E.px 200
+                    , E.height E.fill
                     , E.width E.fill
                     , Eb.dashed
                     , E.spacing gap
@@ -870,179 +818,31 @@ gap =
     20
 
 
-findFocussed model website =
-    case ( website, model.focussedNode ) of
-        ( _, Nothing ) ->
-            Nothing
-
-        ( ( Text t, id ), Just fid ) ->
-            if fid == id then
-                Just (Text t)
-
-            else
-                Nothing
-
-        ( ( Row cells, id ), Just fid ) ->
-            if fid == id then
-                Just (Row cells)
-
-            else
-                firstJust <| List.map (findFocussed model) cells
-
-        ( ( Column cells, id ), Just fid ) ->
-            if fid == id then
-                Just (Column cells)
-
-            else
-                firstJust <| List.map (findFocussed model) cells
-
-
-parent : Model -> Website -> Maybe Component
-parent model website =
-    case website of
-        ( Text _, _ ) ->
-            Nothing
-
-        ( Row cells, id ) ->
-            if List.any (\( _, cid ) -> cid == id) cells then
-                Just <| Row cells
-
-            else
-                firstJust <| List.map (parent model) cells
-
-        ( Column cells, id ) ->
-            if List.any (\( _, cid ) -> cid == id) cells then
-                Just <| Row cells
-
-            else
-                firstJust <| List.map (parent model) cells
-
-
-textEditButtons : List (E.Element Msg)
-textEditButtons =
-    [ Ei.button []
-        { onPress = Just EditTextButton
-        , label = E.text "Edit text"
-        }
-    ]
-
-
-startUpTools : List (E.Element Msg)
-startUpTools =
-    [ Ei.button []
-        { onPress = Just InsertText
-        , label = E.text "Insert text"
-        }
-    , Ei.button []
-        { onPress = Just InsertRow
-        , label = E.text "Insert row"
-        }
-    , Ei.button []
-        { onPress = Just InsertColumn
-        , label = E.text "Insert column"
-        }
-    ]
-
-
 tools : Model -> E.Element Msg
 tools model =
-    E.column
-        ([ E.alignTop
-         , E.alignLeft
-         , Back.color <| E.rgb 1 1 1
-         ]
-            ++ (if model.dragging then
-                    [ E.moveRight <| toFloat <| model.toolPosX - 30
-                    , E.moveDown <| toFloat <| model.toolPosY - 10
-                    ]
-
-                else
-                    [ E.moveRight <| toFloat <| model.toolPosX
-                    , E.moveDown <| toFloat <| model.toolPosY
-                    ]
-               )
-        )
-    <|
-        case model.website of
-            Nothing ->
-                startUpTools
-
-            Just website ->
-                case
-                    ( findFocussed model website
-                    , parent model website
-                    )
-                of
-                    ( Nothing, Nothing ) ->
-                        []
-
-                    ( Just (Text _), Nothing ) ->
-                        textEditButtons
-
-                    ( Just (Row []), Nothing ) ->
-                        oneTopRow
-
-                    _ ->
-                        []
-
-
-type alias MouseMoveData =
-    { x : Int
-    , y : Int
-    }
-
-
-oneTopRow : List (E.Element Msg)
-oneTopRow =
-    [ E.el
-        [ Ev.onMouseDown Drag
-        , Ev.onMouseUp Undrag
+    E.column [ E.alignTop ]
+        [ Ei.button []
+            { onPress = Just InsertText
+            , label = E.text "Insert text"
+            }
+        , Ei.button []
+            { onPress = Just InsertRow
+            , label = E.text "Insert row"
+            }
+        , Ei.button []
+            { onPress = Just InsertColumn
+            , label = E.text "Insert column"
+            }
+        , Ei.button []
+            { onPress = Just EditTextButton
+            , label = E.text "Edit text"
+            }
+        , Ei.button []
+            { onPress = Just Select
+            , label = E.text "Select"
+            }
+        , Ei.button []
+            { onPress = Just Unselect
+            , label = E.text "Unselect"
+            }
         ]
-      <|
-        E.text "handle"
-    , Ei.button []
-        { onPress = Just InsertText
-        , label = E.text "Insert text"
-        }
-    , Ei.button []
-        { onPress = Just InsertRow
-        , label = E.text "Insert row"
-        }
-    , Ei.button []
-        { onPress = Just InsertColumn
-        , label = E.text "Insert column"
-        }
-    ]
-
-
-
---     E.column [ E.alignTop ]
---         [ Ei.button []
---             { onPress = Just InsertText
---             , label = E.text "Insert text"
---             }
---         , Ei.button []
---             { onPress = Just InsertRow
---             , label = E.text "Insert row"
---             }
---         , Ei.button []
---             { onPress = Just InsertColumn
---             , label = E.text "Insert column"
---             }
---         , Ei.button []
---             { onPress = Just EditTextButton
---             , label = E.text "Edit text"
---             }
---         , Ei.button []
---             { onPress = Just Select
---             , label = E.text "Select"
---             }
---         , Ei.button []
---             { onPress = Just Unselect
---             , label = E.text "Unselect"
---             }
---         , Ei.button []
---             { onPress = Just NoneMode
---             , label = E.text "Passive mode"
---             }
---         ]
