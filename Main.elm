@@ -721,9 +721,9 @@ homePage : Model -> E.Element Msg
 homePage model =
     E.row
         [ E.width E.fill
-        , E.inFront <| tools model
         ]
-        [ emptyOrErrOrFull model model.website model.internalErr
+        [ tools model
+        , emptyOrErrOrFull model model.website model.internalErr
         ]
 
 
@@ -923,7 +923,7 @@ startUpTools =
 
 tools : Model -> E.Element Msg
 tools model =
-    E.column [ E.alignTop, E.alignRight ] <|
+    E.column [ E.alignTop, E.alignRight, E.width <| E.px 150 ] <|
         case model.website of
             Nothing ->
                 startUpTools
