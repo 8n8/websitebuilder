@@ -3,8 +3,8 @@ module Main exposing (main)
 import Browser
 import Browser.Dom as Dom
 import Browser.Navigation as Nav
-import Debug
 import Element as E
+import Element.Background as Back
 import Element.Border as Eb
 import Element.Events as Ev
 import Element.Input as Ei
@@ -43,7 +43,9 @@ type alias Model =
     , internalErr : Maybe String
     , maxId : Int
     , freezeAddChild : Bool
-    , mouseDrag : Maybe MouseMoveData
+    , toolPosX : Int
+    , toolPosY : Int
+    , dragging : Bool
     }
 
 
@@ -111,6 +113,8 @@ type Mode
 type Msg
     = DoNothing
     | Viewport Dom.Viewport
+    | Drag
+    | Undrag
     | MouseMove MouseMoveData
     | NoneMode
     | InsertText
@@ -539,9 +543,19 @@ clickNothingErr =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        Undrag ->
+            ( { model | dragging = False }, Cmd.none )
+
+        Drag ->
+            ( { model | dragging = True }, Cmd.none )
+
         MouseMove dat ->
-            Debug.log "mousedrag"
-                ( { model | mouseDrag = Just dat }, Cmd.none )
+            ( { model
+                | toolPosX = dat.x
+                , toolPosY = dat.y
+              }
+            , Cmd.none
+            )
 
         NoneMode ->
             ( { model | mode = None }, Cmd.none )
@@ -588,28 +602,27 @@ update msg model =
             ( { model | focussedNode = Nothing }, Cmd.none )
 
         Clicked id ->
-            Debug.log "Clicked id ->"
-                ( case ( model.focussedNode, model.website ) of
-                    ( Nothing, Just _ ) ->
-                        { model | focussedNode = Just id }
+            ( case ( model.focussedNode, model.website ) of
+                ( Nothing, Just _ ) ->
+                    { model | focussedNode = Just id }
 
-                    ( Just lastFocus, Just website ) ->
-                        { model
-                            | focussedNode =
-                                childest
-                                    lastFocus
-                                    id
-                                    website
-                        }
+                ( Just lastFocus, Just website ) ->
+                    { model
+                        | focussedNode =
+                            childest
+                                lastFocus
+                                id
+                                website
+                    }
 
-                    _ ->
-                        { model
-                            | internalErr =
-                                Just
-                                    clickNothingErr
-                        }
-                , Cmd.none
-                )
+                _ ->
+                    { model
+                        | internalErr =
+                            Just
+                                clickNothingErr
+                    }
+            , Cmd.none
+            )
 
         -- Debug.log "clicked" <|
         --     case model.website of
@@ -696,7 +709,9 @@ init _ url key =
       , focussedNode = Nothing
       , maxId = 0
       , freezeAddChild = True
-      , mouseDrag = Nothing
+      , dragging = False
+      , toolPosX = 0
+      , toolPosY = 0
       }
     , Task.perform Viewport Dom.getViewport
     )
@@ -771,12 +786,20 @@ showText txt id maybeFocussed =
 showWebsite : Model -> Website -> E.Element Msg
 showWebsite model website =
     E.el
-        [ E.width E.fill
-        , E.alignTop
-        , E.height E.fill
-        , E.htmlAttribute <|
-            Hev.on "mousemove" (Jd.map MouseMove decoder)
-        ]
+        ([ E.width E.fill
+         , E.alignTop
+         , E.height E.fill
+         ]
+            ++ (if model.dragging then
+                    [ E.htmlAttribute <|
+                        Hev.on "mousemove" <|
+                            Jd.map MouseMove decoder
+                    ]
+
+                else
+                    []
+               )
+        )
     <|
         case website of
             ( Text text, id ) ->
@@ -811,7 +834,7 @@ showWebsite model website =
                     , emphasised model.focussedNode id
                     , E.htmlAttribute <| Hat.tabindex 0
                     , Eb.widthXY 1 4
-                    , E.height E.fill
+                    , E.height <| E.px 200
                     , E.width E.fill
                     , Eb.dashed
                     , E.spacing gap
@@ -923,13 +946,33 @@ startUpTools =
 
 tools : Model -> E.Element Msg
 tools model =
-    E.column [ E.alignTop, E.alignRight ] <|
+    E.column
+        ([ E.alignTop
+         , E.alignLeft
+         , Back.color <| E.rgb 1 1 1
+         ]
+            ++ (if model.dragging then
+                    [ E.moveRight <| toFloat <| model.toolPosX - 30
+                    , E.moveDown <| toFloat <| model.toolPosY - 10
+                    ]
+
+                else
+                    [ E.moveRight <| toFloat <| model.toolPosX
+                    , E.moveDown <| toFloat <| model.toolPosY
+                    ]
+               )
+        )
+    <|
         case model.website of
             Nothing ->
                 startUpTools
 
             Just website ->
-                case ( Debug.log "focussed" <| findFocussed model website, Debug.log "parent" <| parent model website ) of
+                case
+                    ( findFocussed model website
+                    , parent model website
+                    )
+                of
                     ( Nothing, Nothing ) ->
                         []
 
@@ -951,7 +994,13 @@ type alias MouseMoveData =
 
 oneTopRow : List (E.Element Msg)
 oneTopRow =
-    [ Ei.button []
+    [ E.el
+        [ Ev.onMouseDown Drag
+        , Ev.onMouseUp Undrag
+        ]
+      <|
+        E.text "handle"
+    , Ei.button []
         { onPress = Just InsertText
         , label = E.text "Insert text"
         }
