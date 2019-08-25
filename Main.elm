@@ -44,7 +44,20 @@ type alias Model =
     , maxId : Int
     , freezeAddChild : Bool
     , mouseDrag : Maybe MouseMoveData
+    , insertion : Insertion
     }
+
+
+type Insertion
+    = LeftInsertion
+    | RightInsertion
+    | AboveInsertion
+    | BelowInsertion
+    | InsideInsertion
+
+
+defaultInsertion =
+    InsideInsertion
 
 
 decoder : Jd.Decoder MouseMoveData
@@ -111,7 +124,6 @@ type Mode
 type Msg
     = DoNothing
     | Viewport Dom.Viewport
-    | MouseMove MouseMoveData
     | NoneMode
     | InsertText
     | EmptyClick
@@ -123,6 +135,7 @@ type Msg
     | InsertColumn
     | Unclicked Int
     | Select
+    | InsertOnLeftChecked Bool
 
 
 notEmptyErr =
@@ -342,146 +355,92 @@ containsId id ws =
                 List.any (containsId id) children
 
 
-{-| It decides if parent with ID id has children with an ID in
-focussed.
+insertComponentLeft :
+    List Website
+    -> Component
+    -> Int
+    -> Int
+    -> Maybe (List Website)
+insertComponentLeft oldWebsites component compId idToBeLeftOf =
+    case oldWebsites of
+        [] ->
+            Just []
 
-focussedChildren : Int -> Set.Set Int -> Website -> Bool
-focussedChildren id focussed ws =
-case ws of
-(Text _, _) -> False
-(Row [], id) -> False
-(Row children, rowId) ->
-if rowId == id then
-List.any (focussedChildren
+        ( c, id ) :: ws ->
+            if id == idToBeLeftOf then
+                Just <| ( component, compId ) :: ( c, id ) :: ws
 
--}
+            else
+                case
+                    insertComponentLeft
+                        ws
+                        component
+                        compId
+                        idToBeLeftOf
+                of
+                    Nothing ->
+                        Nothing
+
+                    Just ok ->
+                        Just <| ( c, id ) :: ok
+
+
 updateWebsiteOnClick : Model -> Component -> Website -> Maybe Website
 updateWebsiteOnClick model component oldWebsite =
-    case oldWebsite of
-        -- ( ( Row cells, id ), InsertTextMode ) ->
-        --     if id == clickId then
-        --         ( Row <|
-        --             ( Text "Enter text here", model.maxId + 1 )
-        --                 :: cells
-        --         , id
-        --         )
-        --     else
-        --         ( Row <|
-        --             List.map
-        --                 (updateWebsiteOnClick model clickId)
-        --                 cells
-        --         , id
-        --         )
-        -- ( ( Row cells, id ), InsertColumnMode ) ->
-        --     if id == clickId then
-        --         ( Row <|
-        --             ( Column [], model.maxId + 1 )
-        --                 :: cells
-        --         , id
-        --         )
-        --     else
-        --         ( Row <|
-        --             List.map
-        --                 (updateWebsiteOnClick model clickId)
-        --                 cells
-        --         , id
-        --         )
-        ( Column cells, id ) ->
-            updateRowOrCol model id cells component Column
+    case ( oldWebsite, model.focussedNode, model.insertion ) of
+        ( ( Row cells, id ), Nothing, _ ) ->
+            Nothing
 
-        ( Row cells, id ) ->
-            updateRowOrCol model id cells component Row
+        ( ( Row cells, id ), Just fId, LeftInsertion ) ->
+            if fId == id then
+                Nothing
 
-        {- case model.focussedNode of
-           Nothing ->
-               Nothing
+            else
+                case
+                    insertComponentLeft
+                        cells
+                        component
+                        (model.maxId + 1)
+                        fId
+                of
+                    Nothing ->
+                        updateRowCells model component cells id
 
-           Just fId ->
-               if fId == id then
-                   Just
-                       ( Row <|
-                           ( Row [], model.maxId + 1 )
-                               :: cells
-                       , id
-                       )
+                    Just updatedCells ->
+                        Just ( Row updatedCells, id )
 
-               else
-                   let
-                       updatedCells =
-                           List.map
-                               (updateWebsiteOnClick model)
-                               cells
-                   in
-                   Just
-                       ( Row <|
-                           updateCells cells updatedCells
-                       , id
-                       )
-        -}
-        --     let
-        --         updatedCells =
-        --             List.map
-        --                 (updateWebsiteOnClick model)
-        --                 cells
-        --     in
-        --     Just ( Row <| updateCells cells updatedCells, id )
-        -- -- if id == clickId then
-        --     ( Row <|
-        --         ( Row [], model.maxId + 1 )
-        --             :: cells
-        --     , id
-        --     )
-        -- else
-        --     ( Row <|
-        --         List.map
-        --             (updateWebsiteOnClick model clickId)
-        --             cells
-        --     , id
-        --     )
-        -- ( ( Column cells, id ), InsertTextMode ) ->
-        --     if id == clickId then
-        --         ( Column <|
-        --             ( Text "Enter text here", model.maxId + 1 )
-        --                 :: cells
-        --         , id
-        --         )
-        --     else
-        --         ( Column <|
-        --             List.map
-        --                 (updateWebsiteOnClick model clickId)
-        --                 cells
-        --         , id
-        --         )
-        -- ( ( Column cells, id ), InsertColumnMode ) ->
-        --     if id == clickId then
-        --         ( Column <|
-        --             ( Column [], model.maxId + 1 )
-        --                 :: cells
-        --         , id
-        --         )
-        --     else
-        --         ( Column <|
-        --             List.map
-        --                 (updateWebsiteOnClick model clickId)
-        --                 cells
-        --         , id
-        --         )
-        -- ( ( Column cells, id ), InsertRowMode ) ->
-        --     if id == clickId then
-        --         ( Column <|
-        --             ( Row [], model.maxId + 1 )
-        --                 :: cells
-        --         , id
-        --         )
-        --     else
-        --         ( Column <|
-        --             List.map
-        --                 (updateWebsiteOnClick model clickId)
-        --                 cells
-        --         , id
-        --         )
+        ( ( Row cells, id ), Just fId, _ ) ->
+            if fId == id then
+                Just
+                    ( Row <|
+                        ( component, model.maxId + 1 )
+                            :: cells
+                    , id
+                    )
+
+            else
+                updateRowCells model component cells id
+
         _ ->
             Nothing
+
+
+updateRowCells : Model -> Component -> List Website -> Int -> Maybe Website
+updateRowCells model component cells id =
+    let
+        updatedCells =
+            List.map
+                (updateWebsiteOnClick
+                    model
+                    component
+                )
+                cells
+    in
+    Just
+        ( Row <|
+            updateCells cells updatedCells
+        , id
+        )
 
 
 updateRowOrCol :
@@ -539,15 +498,39 @@ clickNothingErr =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        MouseMove dat ->
-            Debug.log "mousedrag"
-                ( { model | mouseDrag = Just dat }, Cmd.none )
+        InsertOnLeftChecked True ->
+            ( { model
+                | insertion = LeftInsertion
+              }
+            , Cmd.none
+            )
+
+        InsertOnLeftChecked False ->
+            ( { model
+                | insertion = defaultInsertion
+              }
+            , Cmd.none
+            )
 
         NoneMode ->
             ( { model | mode = None }, Cmd.none )
 
         Unclicked id ->
-            ( { model | focussedNode = Nothing }, Cmd.none )
+            case model.focussedNode of
+                Nothing ->
+                    ( model, Cmd.none )
+
+                Just fid ->
+                    if id == fid then
+                        ( { model
+                            | focussedNode = Nothing
+                            , mode = None
+                          }
+                        , Cmd.none
+                        )
+
+                    else
+                        ( model, Cmd.none )
 
         Select ->
             ( { model
@@ -588,26 +571,31 @@ update msg model =
             ( { model | focussedNode = Nothing }, Cmd.none )
 
         Clicked id ->
-            Debug.log "Clicked id ->"
-                ( case ( model.focussedNode, model.website ) of
-                    ( Nothing, Just _ ) ->
-                        { model | focussedNode = Just id }
+            Debug.log "Clicked"
+                ( if model.mode == SelectionMode then
+                    case ( model.focussedNode, model.website ) of
+                        ( Nothing, Just _ ) ->
+                            { model | focussedNode = Just id }
 
-                    ( Just lastFocus, Just website ) ->
-                        { model
-                            | focussedNode =
-                                childest
-                                    lastFocus
-                                    id
-                                    website
-                        }
+                        ( Just lastFocus, Just website ) ->
+                            { model
+                                | focussedNode =
+                                    Debug.log "childest" <|
+                                        childest
+                                            (Debug.log "lastFocus" lastFocus)
+                                            (Debug.log "id" id)
+                                            website
+                            }
 
-                    _ ->
-                        { model
-                            | internalErr =
-                                Just
-                                    clickNothingErr
-                        }
+                        _ ->
+                            { model
+                                | internalErr =
+                                    Just
+                                        clickNothingErr
+                            }
+
+                  else
+                    model
                 , Cmd.none
                 )
 
@@ -697,6 +685,7 @@ init _ url key =
       , maxId = 0
       , freezeAddChild = True
       , mouseDrag = Nothing
+      , insertion = defaultInsertion
       }
     , Task.perform Viewport Dom.getViewport
     )
@@ -774,8 +763,6 @@ showWebsite model website =
         [ E.width E.fill
         , E.alignTop
         , E.height E.fill
-        , E.htmlAttribute <|
-            Hev.on "mousemove" (Jd.map MouseMove decoder)
         ]
     <|
         case website of
@@ -876,23 +863,28 @@ findFocussed model website =
 
 parent : Model -> Website -> Maybe Component
 parent model website =
-    case website of
-        ( Text _, _ ) ->
+    case model.focussedNode of
+        Nothing ->
             Nothing
 
-        ( Row cells, id ) ->
-            if List.any (\( _, cid ) -> cid == id) cells then
-                Just <| Row cells
+        Just fId ->
+            case website of
+                ( Text _, _ ) ->
+                    Nothing
 
-            else
-                firstJust <| List.map (parent model) cells
+                ( Row cells, id ) ->
+                    if List.any (\( _, cid ) -> cid == fId) cells then
+                        Just <| Row cells
 
-        ( Column cells, id ) ->
-            if List.any (\( _, cid ) -> cid == id) cells then
-                Just <| Row cells
+                    else
+                        firstJust <| List.map (parent model) cells
 
-            else
-                firstJust <| List.map (parent model) cells
+                ( Column cells, id ) ->
+                    if List.any (\( _, cid ) -> cid == fId) cells then
+                        Just <| Row cells
+
+                    else
+                        firstJust <| List.map (parent model) cells
 
 
 textEditButtons : List (E.Element Msg)
@@ -921,6 +913,32 @@ startUpTools =
     ]
 
 
+selectButton : E.Element Msg
+selectButton =
+    Ei.button []
+        { onPress = Just Select
+        , label = E.text "Select"
+        }
+
+
+insertOnLeftCheckbox : Bool -> E.Element Msg
+insertOnLeftCheckbox checked =
+    Ei.checkbox []
+        { onChange = InsertOnLeftChecked
+        , icon = Ei.defaultCheckbox
+        , checked = checked
+        , label = Ei.labelRight [] <| E.text "Insert on left"
+        }
+
+
+selectedEmptyRowInRow : Model -> List (E.Element Msg)
+selectedEmptyRowInRow model =
+    [ insertRowButton
+    , insertOnLeftCheckbox <| model.insertion == LeftInsertion
+    , selectButton
+    ]
+
+
 tools : Model -> E.Element Msg
 tools model =
     E.column [ E.alignTop, E.alignRight, E.width <| E.px 150 ] <|
@@ -931,13 +949,30 @@ tools model =
             Just website ->
                 case ( Debug.log "focussed" <| findFocussed model website, Debug.log "parent" <| parent model website ) of
                     ( Nothing, Nothing ) ->
-                        []
+                        if model.mode == SelectionMode then
+                            []
+
+                        else
+                            [ Ei.button []
+                                { onPress = Just Select
+                                , label = E.text "Select"
+                                }
+                            ]
 
                     ( Just (Text _), Nothing ) ->
                         textEditButtons
 
                     ( Just (Row []), Nothing ) ->
-                        oneTopRow
+                        oneTopRowOrCol model.mode
+
+                    ( Just (Row (x :: xs)), Nothing ) ->
+                        oneTopRowOrCol model.mode
+
+                    ( Just (Column []), Nothing ) ->
+                        oneTopRowOrCol model.mode
+
+                    ( Just (Row []), Just (Row parentCells) ) ->
+                        selectedEmptyRowInRow model
 
                     _ ->
                         []
@@ -949,21 +984,36 @@ type alias MouseMoveData =
     }
 
 
-oneTopRow : List (E.Element Msg)
-oneTopRow =
+insertRowButton : E.Element Msg
+insertRowButton =
+    Ei.button []
+        { onPress = Just InsertRow
+        , label = E.text "Insert row"
+        }
+
+
+oneTopRowOrCol : Mode -> List (E.Element Msg)
+oneTopRowOrCol mode =
     [ Ei.button []
         { onPress = Just InsertText
         , label = E.text "Insert text"
         }
-    , Ei.button []
-        { onPress = Just InsertRow
-        , label = E.text "Insert row"
-        }
+    , insertRowButton
     , Ei.button []
         { onPress = Just InsertColumn
         , label = E.text "Insert column"
         }
     ]
+        ++ (if mode == SelectionMode then
+                []
+
+            else
+                [ Ei.button []
+                    { onPress = Just Select
+                    , label = E.text "Select"
+                    }
+                ]
+           )
 
 
 
