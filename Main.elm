@@ -135,7 +135,7 @@ type Msg
     | InsertColumn
     | Unclicked Int
     | Select
-    | InsertOnLeftChecked Bool
+    | InsertionRadio Insertion
 
 
 notEmptyErr =
@@ -385,10 +385,73 @@ insertComponentLeft oldWebsites component compId idToBeLeftOf =
                         Just <| ( c, id ) :: ok
 
 
+insertComponentAbove :
+    List Website
+    -> Component
+    -> Int
+    -> Int
+    -> Maybe (List Website)
+insertComponentAbove oldWebsites component compId idToBeAbove =
+    case oldWebsites of
+        [] ->
+            Just []
+
+        ( c, id ) :: ws ->
+            if id == idToBeAbove then
+                Just <| ( component, compId ) :: ( c, id ) :: ws
+
+            else
+                case
+                    insertComponentAbove
+                        ws
+                        component
+                        compId
+                        idToBeAbove
+                of
+                    Nothing ->
+                        Nothing
+
+                    Just ok ->
+                        Just <| ( c, id ) :: ok
+
+
+insertComponentBelow :
+    List Website
+    -> Component
+    -> Int
+    -> Int
+    -> Maybe (List Website)
+insertComponentBelow oldWebsites component compId idToBeBelow =
+    case oldWebsites of
+        [] ->
+            Just []
+
+        ( c, id ) :: ws ->
+            if id == idToBeBelow then
+                Just <| ( c, id ) :: ( component, compId ) :: ws
+
+            else
+                case
+                    insertComponentBelow
+                        ws
+                        component
+                        compId
+                        idToBeBelow
+                of
+                    Nothing ->
+                        Nothing
+
+                    Just ok ->
+                        Just <| ( c, id ) :: ok
+
+
 updateWebsiteOnClick : Model -> Component -> Website -> Maybe Website
 updateWebsiteOnClick model component oldWebsite =
     case ( oldWebsite, model.focussedNode, model.insertion ) of
-        ( ( Row cells, id ), Nothing, _ ) ->
+        ( _, Nothing, _ ) ->
+            Nothing
+
+        ( ( Text _, _ ), Just _, _ ) ->
             Nothing
 
         ( ( Row cells, id ), Just fId, LeftInsertion ) ->
@@ -409,7 +472,25 @@ updateWebsiteOnClick model component oldWebsite =
                     Just updatedCells ->
                         Just ( Row updatedCells, id )
 
-        ( ( Row cells, id ), Just fId, _ ) ->
+        ( ( Row cells, id ), Just fId, RightInsertion ) ->
+            if fId == id then
+                Nothing
+
+            else
+                case
+                    insertComponentRight
+                        cells
+                        component
+                        (model.maxId + 1)
+                        fId
+                of
+                    Nothing ->
+                        updateRowCells model component cells id
+
+                    Just updatedCells ->
+                        Just ( Row updatedCells, id )
+
+        ( ( Row cells, id ), Just fId, InsideInsertion ) ->
             if fId == id then
                 Just
                     ( Row <|
@@ -421,11 +502,121 @@ updateWebsiteOnClick model component oldWebsite =
             else
                 updateRowCells model component cells id
 
-        _ ->
-            Nothing
+        ( ( Row cells, id ), Just fId, _ ) ->
+            if fId == id then
+                Nothing
+
+            else
+                updateRowCells model component cells id
+
+        ( ( Column cells, id ), Just fId, AboveInsertion ) ->
+            if fId == id then
+                Nothing
+
+            else
+                case
+                    insertComponentAbove
+                        cells
+                        component
+                        (model.maxId + 1)
+                        fId
+                of
+                    Nothing ->
+                        updateColumnCells model component cells id
+
+                    Just updatedCells ->
+                        Just ( Column updatedCells, id )
+
+        ( ( Column cells, id ), Just fId, BelowInsertion ) ->
+            if fId == id then
+                Nothing
+
+            else
+                case
+                    insertComponentBelow
+                        cells
+                        component
+                        (model.maxId + 1)
+                        fId
+                of
+                    Nothing ->
+                        updateColumnCells model component cells id
+
+                    Just updatedCells ->
+                        Just ( Column updatedCells, id )
+
+        ( ( Column cells, id ), Just fId, InsideInsertion ) ->
+            if fId == id then
+                Just
+                    ( Column <|
+                        ( component, model.maxId + 1 )
+                            :: cells
+                    , id
+                    )
+
+            else
+                updateColumnCells model component cells id
+
+        ( ( Column cells, id ), Just fId, _ ) ->
+            if fId == id then
+                Nothing
+
+            else
+                updateColumnCells model component cells id
 
 
-updateRowCells : Model -> Component -> List Website -> Int -> Maybe Website
+insertComponentRight :
+    List Website
+    -> Component
+    -> Int
+    -> Int
+    -> Maybe (List Website)
+insertComponentRight oldWebsites component compId idToBeRightOf =
+    case oldWebsites of
+        [] ->
+            Just []
+
+        ( c, id ) :: ws ->
+            if id == idToBeRightOf then
+                Just <| ( c, id ) :: ( component, compId ) :: ws
+
+            else
+                case
+                    insertComponentRight
+                        ws
+                        component
+                        compId
+                        idToBeRightOf
+                of
+                    Nothing ->
+                        Nothing
+
+                    Just ok ->
+                        Just <| ( c, id ) :: ok
+
+
+updateColumnCells :
+    Model
+    -> Component
+    -> List Website
+    -> Int
+    -> Maybe Website
+updateColumnCells model component cells id =
+    let
+        updatedCells =
+            List.map
+                (updateWebsiteOnClick model component)
+                cells
+    in
+    Just ( Column <| updateCells cells updatedCells, id )
+
+
+updateRowCells :
+    Model
+    -> Component
+    -> List Website
+    -> Int
+    -> Maybe Website
 updateRowCells model component cells id =
     let
         updatedCells =
@@ -498,19 +689,8 @@ clickNothingErr =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        InsertOnLeftChecked True ->
-            ( { model
-                | insertion = LeftInsertion
-              }
-            , Cmd.none
-            )
-
-        InsertOnLeftChecked False ->
-            ( { model
-                | insertion = defaultInsertion
-              }
-            , Cmd.none
-            )
+        InsertionRadio insertion ->
+            ( { model | insertion = insertion }, Cmd.none )
 
         NoneMode ->
             ( { model | mode = None }, Cmd.none )
@@ -543,30 +723,9 @@ update msg model =
         InsertRow ->
             insertComponent model (Row [])
 
-        -- ( case model.website of
-        --     Nothing ->
-        --         { model | website = Just ( Row [], 0 ) }
-        --     Just website ->
-        --         case model.focussedNode of
-        --             Nothing ->
-        --                 model
-        --             Just _ ->
-        --                 case updateWebsiteOnClick model website of
-        --                     Just newSite ->
-        --                         { model
-        --                             | website = Just newSite
-        --                             , mode = None
-        --                             , focussedNode = Nothing
-        --                             , maxId = model.maxId + 1
-        --                         }
-        --                     Nothing ->
-        --                         model
-        -- , Cmd.none
-        -- )
         InsertColumn ->
             insertComponent model (Column [])
 
-        -- ( { model | mode = InsertColumnMode }, Cmd.none )
         Unselect ->
             ( { model | focussedNode = Nothing }, Cmd.none )
 
@@ -599,41 +758,6 @@ update msg model =
                 , Cmd.none
                 )
 
-        -- Debug.log "clicked" <|
-        --     case model.website of
-        --         Nothing ->
-        --             ( { model | internalErr = Just clickNothingErr }
-        --             , Cmd.none
-        --             )
-        --         Just oldWebsite ->
-        --             if model.freezeAddChild then
-        --                 ( model, Cmd.none )
-        --             else
-        --                 case updateWebsiteOnClick model id oldWebsite of
-        --                     Nothing ->
-        --                         ( { model
-        --                             | focussedNodes =
-        --                                 Set.insert
-        --                                     (Debug.log "id" id)
-        --                                     model.focussedNodes
-        --                           }
-        --                         , Cmd.none
-        --                         )
-        --                     Just newSite ->
-        --                         ( { model
-        --                             | focussedNodes =
-        --                                 Set.insert
-        --                                     (model.maxId + 1)
-        --                                 <|
-        --                                     Set.insert
-        --                                         id
-        --                                         model.focussedNodes
-        --                             , website = Just newSite
-        --                             , maxId = model.maxId + 1
-        --                             , freezeAddChild = True
-        --                           }
-        --                         , Cmd.none
-        --                         )
         EditText id newText ->
             case model.website of
                 Just ws ->
@@ -881,19 +1005,18 @@ parent model website =
 
                 ( Column cells, id ) ->
                     if List.any (\( _, cid ) -> cid == fId) cells then
-                        Just <| Row cells
+                        Just <| Column cells
 
                     else
                         firstJust <| List.map (parent model) cells
 
 
-textEditButtons : List (E.Element Msg)
-textEditButtons =
-    [ Ei.button []
+textEditButton : E.Element Msg
+textEditButton =
+    Ei.button []
         { onPress = Just EditTextButton
         , label = E.text "Edit text"
         }
-    ]
 
 
 startUpTools : List (E.Element Msg)
@@ -921,61 +1044,233 @@ selectButton =
         }
 
 
-insertOnLeftCheckbox : Bool -> E.Element Msg
-insertOnLeftCheckbox checked =
-    Ei.checkbox []
-        { onChange = InsertOnLeftChecked
-        , icon = Ei.defaultCheckbox
-        , checked = checked
-        , label = Ei.labelRight [] <| E.text "Insert on left"
-        }
+
+{-
+   insertLeftCheckbox : Insertion -> E.Element Msg
+   insertLeftCheckbox insertion =
+       Ei.checkbox []
+           { onChange = InsertOnLeftChecked
+           , icon = Ei.defaultCheckbox
+           , checked = insertion == LeftInsertion
+           , label = Ei.labelRight [] <| E.text "Insert on left"
+           }
+-}
+{-
+   insertAboveCheckbox : Bool -> E.Element Msg
+   insertAboveCheckbox checked =
+       Ei.checkbox []
+           { onChange = InsertAboveChecked
+           , icon = Ei.defaultCheckbox
+           , checked = checked
+           , label = Ei.labelRight [] <| E.text "Insert above"
+           }
+-}
 
 
 selectedEmptyRowInRow : Model -> List (E.Element Msg)
 selectedEmptyRowInRow model =
     [ insertRowButton
-    , insertOnLeftCheckbox <| model.insertion == LeftInsertion
+    , leftRightInsideRadio model.insertion
     , selectButton
+    ]
+
+
+emptyRowOrColButtons : Model -> List (E.Element Msg)
+emptyRowOrColButtons model =
+    [ insertTextButton
+    , insertColumnButton
+    , insertRowButton
+    , maybeSelectionButton model
     ]
 
 
 tools : Model -> E.Element Msg
 tools model =
-    E.column [ E.alignTop, E.alignRight, E.width <| E.px 150 ] <|
+    E.column [ E.alignTop, E.alignRight, E.width <| E.px 180 ] <|
         case model.website of
             Nothing ->
                 startUpTools
 
             Just website ->
                 case ( Debug.log "focussed" <| findFocussed model website, Debug.log "parent" <| parent model website ) of
-                    ( Nothing, Nothing ) ->
-                        if model.mode == SelectionMode then
-                            []
-
-                        else
-                            [ Ei.button []
-                                { onPress = Just Select
-                                , label = E.text "Select"
-                                }
-                            ]
+                    ( Nothing, _ ) ->
+                        [ maybeSelectionButton model ]
 
                     ( Just (Text _), Nothing ) ->
-                        textEditButtons
+                        [ textEditButton ]
 
                     ( Just (Row []), Nothing ) ->
-                        oneTopRowOrCol model.mode
+                        emptyRowOrColButtons model
 
                     ( Just (Row (x :: xs)), Nothing ) ->
-                        oneTopRowOrCol model.mode
+                        [ maybeSelectionButton model
+                        ]
 
                     ( Just (Column []), Nothing ) ->
-                        oneTopRowOrCol model.mode
+                        emptyRowOrColButtons model
 
                     ( Just (Row []), Just (Row parentCells) ) ->
-                        selectedEmptyRowInRow model
+                        [ insertRowButton
+                        , insertColumnButton
+                        , insertTextButton
+                        , leftRightInsideRadio model.insertion
+                        , maybeSelectionButton model
+                        ]
 
-                    _ ->
-                        []
+                    ( Just (Text _), Just (Row _) ) ->
+                        [ textEditButton
+                        , insertRowButton
+                        , insertColumnButton
+                        , insertTextButton
+                        , leftRightRadio model.insertion
+                        , maybeSelectionButton model
+                        ]
+
+                    ( _, Just (Text _) ) ->
+                        fatalErrTools
+                            "An element can't have text for a parent."
+
+                    ( Just (Text _), Just (Column (_ :: _)) ) ->
+                        [ textEditButton
+                        , insertRowButton
+                        , insertColumnButton
+                        , insertTextButton
+                        , upDownRadio model.insertion
+                        , maybeSelectionButton model
+                        ]
+
+                    ( Just (Row []), Just (Column (_ :: _)) ) ->
+                        [ insertRowButton
+                        , insertColumnButton
+                        , insertTextButton
+                        , upDownInsideRadio model.insertion
+                        , maybeSelectionButton model
+                        ]
+
+                    ( _, Just (Row []) ) ->
+                        fatalErrTools
+                            "An empty row can't have a child."
+
+                    ( Just (Row (_ :: _)), Just (Row (_ :: _)) ) ->
+                        [ insertRowButton
+                        , insertColumnButton
+                        , insertTextButton
+                        , leftRightRadio model.insertion
+                        , maybeSelectionButton model
+                        ]
+
+                    ( _, Just (Column []) ) ->
+                        fatalErrTools
+                            "An empty column can't have a child."
+
+                    ( Just (Row (_ :: _)), Just (Column (_ :: _)) ) ->
+                        [ insertRowButton
+                        , insertColumnButton
+                        , insertTextButton
+                        , upDownRadio model.insertion
+                        , maybeSelectionButton model
+                        ]
+
+                    ( Just (Column (_ :: _)), Nothing ) ->
+                        [ maybeSelectionButton model
+                        ]
+
+                    ( Just (Column []), Just (Row (_ :: _)) ) ->
+                        [ insertRowButton
+                        , insertColumnButton
+                        , insertTextButton
+                        , leftRightInsideRadio model.insertion
+                        , maybeSelectionButton model
+                        ]
+
+                    ( Just (Column []), Just (Column (_ :: _)) ) ->
+                        [ insertRowButton
+                        , insertColumnButton
+                        , insertTextButton
+                        , upDownInsideRadio model.insertion
+                        , maybeSelectionButton model
+                        ]
+
+                    ( Just (Column (_ :: _)), Just (Row (_ :: _)) ) ->
+                        [ insertRowButton
+                        , insertColumnButton
+                        , insertTextButton
+                        , leftRightRadio model.insertion
+                        , maybeSelectionButton model
+                        ]
+
+                    ( Just (Column (_ :: _)), Just (Column (_ :: _)) ) ->
+                        [ insertRowButton
+                        , insertColumnButton
+                        , insertTextButton
+                        , upDownRadio model.insertion
+                        , maybeSelectionButton model
+                        ]
+
+
+leftRightInsideRadio : Insertion -> E.Element Msg
+leftRightInsideRadio insertion =
+    Ei.radio []
+        { onChange = InsertionRadio
+        , selected = Just insertion
+        , label =
+            Ei.labelAbove [] <| E.text "insertion options"
+        , options =
+            [ Ei.option LeftInsertion <| E.text "Insert on left"
+            , Ei.option RightInsertion <| E.text "Insert on right"
+            , Ei.option InsideInsertion <| E.text "Insert inside"
+            ]
+        }
+
+
+upDownInsideRadio : Insertion -> E.Element Msg
+upDownInsideRadio insertion =
+    Ei.radio []
+        { onChange = InsertionRadio
+        , selected = Just insertion
+        , label =
+            Ei.labelAbove [] <| E.text "insertion options"
+        , options =
+            [ Ei.option AboveInsertion <| E.text "Insert above"
+            , Ei.option BelowInsertion <| E.text "Insert below"
+            , Ei.option InsideInsertion <| E.text "Insert inside"
+            ]
+        }
+
+
+upDownRadio : Insertion -> E.Element Msg
+upDownRadio insertion =
+    Ei.radio []
+        { onChange = InsertionRadio
+        , selected = Just insertion
+        , label =
+            Ei.labelAbove [] <| E.text "insertion options"
+        , options =
+            [ Ei.option AboveInsertion <| E.text "Insert above"
+            , Ei.option BelowInsertion <| E.text "Insert below"
+            ]
+        }
+
+
+leftRightRadio : Insertion -> E.Element Msg
+leftRightRadio insertion =
+    Ei.radio []
+        { onChange = InsertionRadio
+        , selected = Just insertion
+        , label =
+            Ei.labelAbove [] <| E.text "Insertion options"
+        , options =
+            [ Ei.option LeftInsertion <| E.text "Insert on left"
+            , Ei.option RightInsertion <| E.text "Insert on right"
+            ]
+        }
+
+
+fatalErrTools : String -> List (E.Element Msg)
+fatalErrTools err =
+    [ E.text "fatal error:"
+    , E.text err
+    ]
 
 
 type alias MouseMoveData =
@@ -989,6 +1284,14 @@ insertRowButton =
     Ei.button []
         { onPress = Just InsertRow
         , label = E.text "Insert row"
+        }
+
+
+insertTextButton : E.Element Msg
+insertTextButton =
+    Ei.button []
+        { onPress = Just InsertText
+        , label = E.text "Insert text"
         }
 
 
@@ -1014,6 +1317,28 @@ oneTopRowOrCol mode =
                     }
                 ]
            )
+
+
+insertColumnButton : E.Element Msg
+insertColumnButton =
+    Ei.button []
+        { onPress = Just InsertColumn
+        , label = E.text "Insert column"
+        }
+
+
+maybeSelectionButton : Model -> E.Element Msg
+maybeSelectionButton model =
+    if
+        model.mode
+            == SelectionMode
+            && model.focussedNode
+            /= Nothing
+    then
+        E.none
+
+    else
+        selectButton
 
 
 
