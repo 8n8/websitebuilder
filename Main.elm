@@ -4,6 +4,7 @@ import Browser
 import Browser.Dom as Dom
 import Browser.Navigation as Nav
 import Debug
+import Dict
 import Element as E
 import Element.Border as Eb
 import Element.Events as Ev
@@ -43,9 +44,9 @@ type alias Model =
     , focussedNode : Maybe Int
     , internalErr : Maybe String
     , maxId : Int
-    , freezeAddChild : Bool
     , mouseDrag : Maybe MouseMoveData
     , insertion : Insertion
+    , widths : Dict.Dict Int E.Length
     , widthMax : Maybe Int
     , widthMin : Maybe Int
     , widthPx : Maybe Int
@@ -706,13 +707,94 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         WidthRadio width ->
-            ( { model | widthRadio = width }, Cmd.none )
+            Debug.log "WidthRadio"
+                ( { model
+                    | widthRadio = width
+                    , widthPx = Nothing
+                    , widthFillPortion = Nothing
+                    , widths =
+                        case ( model.focussedNode, width ) of
+                            ( Nothing, _ ) ->
+                                model.widths
+
+                            ( Just fId, Px ) ->
+                                case model.widthPx of
+                                    Nothing ->
+                                        model.widths
+
+                                    Just px ->
+                                        Dict.insert fId
+                                            (E.px px)
+                                            model.widths
+
+                            ( Just fId, Shrink ) ->
+                                Dict.insert fId E.shrink model.widths
+
+                            ( Just fId, Fill ) ->
+                                Dict.insert fId E.fill model.widths
+
+                            ( Just fId, FillPortion ) ->
+                                case model.widthFillPortion of
+                                    Nothing ->
+                                        model.widths
+
+                                    Just fp ->
+                                        Dict.insert fId
+                                            (E.fillPortion fp)
+                                            model.widths
+                  }
+                , Cmd.none
+                )
 
         WidthFillPortion fillPortion ->
-            ( { model | widthFillPortion = fillPortion }, Cmd.none )
+            ( { model
+                | widthFillPortion = fillPortion
+                , widthRadio = FillPortion
+                , widthPx = Nothing
+                , widths =
+                    if model.widthRadio == FillPortion then
+                        case ( model.focussedNode, fillPortion ) of
+                            ( Nothing, _ ) ->
+                                model.widths
+
+                            ( _, Nothing ) ->
+                                model.widths
+
+                            ( Just fId, Just fp ) ->
+                                Dict.insert fId
+                                    (E.fillPortion fp)
+                                    model.widths
+
+                    else
+                        model.widths
+              }
+            , Cmd.none
+            )
 
         WidthPx widthPx ->
-            ( { model | widthPx = widthPx }, Cmd.none )
+            ( { model
+                | widthPx = widthPx
+                , widthFillPortion = Nothing
+                , widthRadio = Px
+                , widths =
+                    if model.widthRadio == Px then
+                        case ( model.focussedNode, widthPx ) of
+                            ( Nothing, _ ) ->
+                                model.widths
+
+                            ( _, Nothing ) ->
+                                model.widths
+
+                            ( Just fId, Just px ) ->
+                                Dict.insert fId
+                                    (E.px px)
+                                    model.widths
+
+                    else
+                        model.widths
+              }
+            , Cmd.none
+            )
 
         InsertionRadio insertion ->
             ( { model | insertion = insertion }, Cmd.none )
@@ -832,7 +914,6 @@ init _ url key =
       , internalErr = Nothing
       , focussedNode = Nothing
       , maxId = 0
-      , freezeAddChild = True
       , mouseDrag = Nothing
       , insertion = defaultInsertion
       , widthMax = Nothing
@@ -840,6 +921,7 @@ init _ url key =
       , widthPx = Nothing
       , widthFillPortion = Nothing
       , widthRadio = Fill
+      , widths = Dict.empty
       }
     , Task.perform Viewport Dom.getViewport
     )
@@ -899,16 +981,24 @@ emptySite =
         []
 
 
-showText : String -> Int -> Maybe Int -> E.Element Msg
-showText txt id maybeFocussed =
-    E.el
+showText : String -> Int -> Maybe Int -> Dict.Dict Int E.Length -> E.Element Msg
+showText txt id maybeFocussed widths =
+    E.paragraph
         ([ Ev.onFocus (Clicked id)
          , E.htmlAttribute <| Hat.tabindex 0
+         , E.height E.fill
+         , E.width <|
+            case Dict.get id widths of
+                Nothing ->
+                    Debug.log "fill" E.fill
+
+                Just w ->
+                    Debug.log "w" w
          ]
             ++ textSelectStyle maybeFocussed id
         )
     <|
-        E.text txt
+        [ E.text txt ]
 
 
 showWebsite : Model -> Website -> E.Element Msg
@@ -927,6 +1017,13 @@ showWebsite model website =
                             Ei.multiline
                                 [ Ev.onFocus <| Clicked id
                                 , Ev.onLoseFocus <| Unclicked id
+                                , E.width <|
+                                    case Dict.get id model.widths of
+                                        Nothing ->
+                                            E.fill
+
+                                        Just w ->
+                                            w
                                 ]
                                 { onChange = EditText id
                                 , text = text
@@ -941,10 +1038,17 @@ showWebsite model website =
                                 }
 
                         else
-                            showText text id model.focussedNode
+                            showText
+                                text
+                                id
+                                model.focussedNode
+                                model.widths
 
                     _ ->
-                        showText text id model.focussedNode
+                        showText text
+                            id
+                            model.focussedNode
+                            model.widths
 
             ( Row websites, id ) ->
                 E.row
@@ -953,7 +1057,13 @@ showWebsite model website =
                     , E.htmlAttribute <| Hat.tabindex 0
                     , Eb.widthXY 1 4
                     , E.height E.fill
-                    , E.width E.fill
+                    , E.width <|
+                        case Dict.get id model.widths of
+                            Nothing ->
+                                E.fill
+
+                            Just w ->
+                                w
                     , Eb.dashed
                     , E.spacing gap
                     , E.padding gap
@@ -967,7 +1077,13 @@ showWebsite model website =
                     , emphasised model.focussedNode id
                     , Eb.widthXY 4 1
                     , E.height E.fill
-                    , E.width E.fill
+                    , E.width <|
+                        case Dict.get id model.widths of
+                            Nothing ->
+                                E.fill
+
+                            Just w ->
+                                w
                     , Eb.dashed
                     , E.padding gap
                     , E.spacing gap
@@ -990,27 +1106,27 @@ gap =
 
 chooseWidthTool : Model -> E.Element Msg
 chooseWidthTool model =
-    Ei.radio []
-        { onChange = WidthRadio
-        , selected = Just model.widthRadio
-        , label = Ei.labelAbove [] <| E.text "width options"
-        , options =
-            [ Ei.option Px <|
-                intBox
-                    { value = model.widthPx
-                    , msg = WidthPx
-                    , label = "in pixels"
-                    }
-            , Ei.option Shrink <| E.text "shrink to fit contents"
-            , Ei.option Fill <| E.text "fill available space"
-            , Ei.option FillPortion <|
-                intBox
-                    { value = model.widthFillPortion
-                    , msg = WidthFillPortion
-                    , label = "fill portion"
-                    }
-            ]
-        }
+    E.column []
+        [ Ei.radio [ E.spacing 20, E.padding 10 ]
+            { onChange = WidthRadio
+            , selected = Just model.widthRadio
+            , label = Ei.labelAbove [] <| E.text "width options"
+            , options =
+                [ Ei.option Shrink <| E.text "shrink to fit contents"
+                , Ei.option Fill <| E.text "fill available space"
+                ]
+            }
+        , intBox
+            { value = model.widthFillPortion
+            , msg = WidthFillPortion
+            , label = "fill portion"
+            }
+        , intBox
+            { value = model.widthPx
+            , msg = WidthPx
+            , label = "in pixels"
+            }
+        ]
 
 
 type alias IntBox =
@@ -1032,7 +1148,7 @@ intDec msg raw =
 
 intBox : IntBox -> E.Element Msg
 intBox { value, msg, label } =
-    Ei.text []
+    Ei.text [ E.width <| E.px 80 ]
         { onChange = intDec msg
         , text = intBoxText value
         , placeholder =
@@ -1047,7 +1163,7 @@ intBoxText : Maybe Int -> String
 intBoxText maybeInt =
     case maybeInt of
         Nothing ->
-            "Type a number"
+            ""
 
         Just i ->
             String.fromInt i
@@ -1221,12 +1337,13 @@ emptyRowOrColButtons model =
     , insertColumnButton
     , insertRowButton
     , maybeSelectionButton model
+    , chooseWidthTool model
     ]
 
 
 tools : Model -> E.Element Msg
 tools model =
-    E.column [ E.alignTop, E.alignRight, E.width <| E.px 180 ] <|
+    E.column [ E.alignTop, E.alignRight, E.width <| E.px 180, E.spacing 20 ] <|
         case model.website of
             Nothing ->
                 startUpTools
@@ -1238,6 +1355,7 @@ tools model =
 
                     ( Just (Text _), Nothing ) ->
                         [ textEditButton
+                        , chooseWidthTool model
                         ]
 
                     ( Just (Row []), Nothing ) ->
@@ -1256,6 +1374,7 @@ tools model =
                         , insertTextButton
                         , leftRightInsideRadio model.insertion
                         , maybeSelectionButton model
+                        , chooseWidthTool model
                         ]
 
                     ( Just (Text _), Just (Row _) ) ->
@@ -1265,6 +1384,7 @@ tools model =
                         , insertTextButton
                         , leftRightRadio model.insertion
                         , maybeSelectionButton model
+                        , chooseWidthTool model
                         ]
 
                     ( _, Just (Text _) ) ->
@@ -1278,6 +1398,7 @@ tools model =
                         , insertTextButton
                         , upDownRadio model.insertion
                         , maybeSelectionButton model
+                        , chooseWidthTool model
                         ]
 
                     ( Just (Row []), Just (Column (_ :: _)) ) ->
@@ -1286,6 +1407,7 @@ tools model =
                         , insertTextButton
                         , upDownInsideRadio model.insertion
                         , maybeSelectionButton model
+                        , chooseWidthTool model
                         ]
 
                     ( _, Just (Row []) ) ->
@@ -1298,6 +1420,7 @@ tools model =
                         , insertTextButton
                         , leftRightRadio model.insertion
                         , maybeSelectionButton model
+                        , chooseWidthTool model
                         ]
 
                     ( _, Just (Column []) ) ->
@@ -1310,10 +1433,12 @@ tools model =
                         , insertTextButton
                         , upDownRadio model.insertion
                         , maybeSelectionButton model
+                        , chooseWidthTool model
                         ]
 
                     ( Just (Column (_ :: _)), Nothing ) ->
                         [ maybeSelectionButton model
+                        , chooseWidthTool model
                         ]
 
                     ( Just (Column []), Just (Row (_ :: _)) ) ->
@@ -1322,6 +1447,7 @@ tools model =
                         , insertTextButton
                         , leftRightInsideRadio model.insertion
                         , maybeSelectionButton model
+                        , chooseWidthTool model
                         ]
 
                     ( Just (Column []), Just (Column (_ :: _)) ) ->
@@ -1330,6 +1456,7 @@ tools model =
                         , insertTextButton
                         , upDownInsideRadio model.insertion
                         , maybeSelectionButton model
+                        , chooseWidthTool model
                         ]
 
                     ( Just (Column (_ :: _)), Just (Row (_ :: _)) ) ->
@@ -1338,6 +1465,7 @@ tools model =
                         , insertTextButton
                         , leftRightRadio model.insertion
                         , maybeSelectionButton model
+                        , chooseWidthTool model
                         ]
 
                     ( Just (Column (_ :: _)), Just (Column (_ :: _)) ) ->
@@ -1346,6 +1474,7 @@ tools model =
                         , insertTextButton
                         , upDownRadio model.insertion
                         , maybeSelectionButton model
+                        , chooseWidthTool model
                         ]
 
 
