@@ -11,6 +11,7 @@ import Element.Input as Ei
 import Html.Attributes as Hat
 import Html.Events as Hev
 import Json.Decode as Jd
+import Parser
 import Set
 import Task
 import Url
@@ -45,7 +46,19 @@ type alias Model =
     , freezeAddChild : Bool
     , mouseDrag : Maybe MouseMoveData
     , insertion : Insertion
+    , widthMax : Maybe Int
+    , widthMin : Maybe Int
+    , widthPx : Maybe Int
+    , widthFillPortion : Maybe Int
+    , widthRadio : Width
     }
+
+
+type Width
+    = Px
+    | Shrink
+    | Fill
+    | FillPortion
 
 
 type Insertion
@@ -136,6 +149,9 @@ type Msg
     | Unclicked Int
     | Select
     | InsertionRadio Insertion
+    | WidthRadio Width
+    | WidthFillPortion (Maybe Int)
+    | WidthPx (Maybe Int)
 
 
 notEmptyErr =
@@ -689,6 +705,15 @@ clickNothingErr =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        WidthRadio width ->
+            ( { model | widthRadio = width }, Cmd.none )
+
+        WidthFillPortion fillPortion ->
+            ( { model | widthFillPortion = fillPortion }, Cmd.none )
+
+        WidthPx widthPx ->
+            ( { model | widthPx = widthPx }, Cmd.none )
+
         InsertionRadio insertion ->
             ( { model | insertion = insertion }, Cmd.none )
 
@@ -810,6 +835,11 @@ init _ url key =
       , freezeAddChild = True
       , mouseDrag = Nothing
       , insertion = defaultInsertion
+      , widthMax = Nothing
+      , widthMin = Nothing
+      , widthPx = Nothing
+      , widthFillPortion = Nothing
+      , widthRadio = Fill
       }
     , Task.perform Viewport Dom.getViewport
     )
@@ -958,6 +988,116 @@ gap =
     20
 
 
+chooseWidthTool : Model -> E.Element Msg
+chooseWidthTool model =
+    Ei.radio []
+        { onChange = WidthRadio
+        , selected = Just model.widthRadio
+        , label = Ei.labelAbove [] <| E.text "width options"
+        , options =
+            [ Ei.option Px <|
+                intBox
+                    { value = model.widthPx
+                    , msg = WidthPx
+                    , label = "in pixels"
+                    }
+            , Ei.option Shrink <| E.text "shrink to fit contents"
+            , Ei.option Fill <| E.text "fill available space"
+            , Ei.option FillPortion <|
+                intBox
+                    { value = model.widthFillPortion
+                    , msg = WidthFillPortion
+                    , label = "fill portion"
+                    }
+            ]
+        }
+
+
+type alias IntBox =
+    { value : Maybe Int
+    , msg : Maybe Int -> Msg
+    , label : String
+    }
+
+
+intDec : (Maybe Int -> Msg) -> String -> Msg
+intDec msg raw =
+    case Parser.run Parser.int raw of
+        Err _ ->
+            msg Nothing
+
+        Ok i ->
+            msg <| Just i
+
+
+intBox : IntBox -> E.Element Msg
+intBox { value, msg, label } =
+    Ei.text []
+        { onChange = intDec msg
+        , text = intBoxText value
+        , placeholder =
+            Just <|
+                Ei.placeholder [] <|
+                    E.text "Type a number"
+        , label = Ei.labelRight [] <| E.text label
+        }
+
+
+intBoxText : Maybe Int -> String
+intBoxText maybeInt =
+    case maybeInt of
+        Nothing ->
+            "Type a number"
+
+        Just i ->
+            String.fromInt i
+
+
+
+-- portionWidthRadio : Model -> E.Element Msg
+-- portionWidthRadio model =
+--     Ei.text
+--         { onChange = widthPortionDec
+--         , text = widthPxText model.widthPx
+--         , placeholder =
+--             Just <|
+--                 Ei.placeholder [] <|
+--                     E.text "Type a number"
+--         , label = Ei.labelLeft [] <| E.text "in pixels"
+--         }
+-- widthPxDec : String -> Msg
+-- widthPxDec raw =
+--     case Parser.run Parser.int raw of
+--         Err _ ->
+--             WidthPx Nothing
+--
+--         Ok i ->
+--             WidthPx <| Just i
+--
+--
+-- widthPxText : Maybe Int -> String
+-- widthPxText maybeWidth =
+--     case maybeWidth of
+--         Nothing ->
+--             "Type a number"
+--
+--         Just i ->
+--             String.fromInt i
+--
+--
+-- pxWidthRadio : Model -> E.Element Msg
+-- pxWidthRadio model =
+--     Ei.text
+--         { onChange = widthPxDec
+--         , text = widthPxText model.widthPx
+--         , placeholder =
+--             Just <|
+--                 Ei.placeholder [] <|
+--                     E.text "Type a number"
+--         , label = Ei.labelLeft [] <| E.text "in pixels"
+--         }
+
+
 findFocussed model website =
     case ( website, model.focussedNode ) of
         ( _, Nothing ) ->
@@ -1097,7 +1237,8 @@ tools model =
                         [ maybeSelectionButton model ]
 
                     ( Just (Text _), Nothing ) ->
-                        [ textEditButton ]
+                        [ textEditButton
+                        ]
 
                     ( Just (Row []), Nothing ) ->
                         emptyRowOrColButtons model
@@ -1333,7 +1474,7 @@ maybeSelectionButton model =
         model.mode
             == SelectionMode
             && model.focussedNode
-            /= Nothing
+            == Nothing
     then
         E.none
 
