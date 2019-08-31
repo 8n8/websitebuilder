@@ -1106,14 +1106,14 @@ gap =
 
 chooseWidthTool : Model -> E.Element Msg
 chooseWidthTool model =
-    E.column []
-        [ Ei.radio [ E.spacing 20, E.padding 10 ]
+    E.column [ E.spacing 10 ]
+        [ Ei.radio [ E.spacing 10 ]
             { onChange = WidthRadio
             , selected = Just model.widthRadio
             , label = Ei.labelAbove [] <| E.text "width options"
             , options =
-                [ Ei.option Shrink <| E.text "shrink to fit contents"
-                , Ei.option Fill <| E.text "fill available space"
+                [ Ei.option Shrink <| E.text "shrink to fit"
+                , Ei.option Fill <| E.text "fill space"
                 ]
             }
         , intBox
@@ -1343,7 +1343,7 @@ emptyRowOrColButtons model =
 
 tools : Model -> E.Element Msg
 tools model =
-    E.column [ E.alignTop, E.alignRight, E.width <| E.px 180, E.spacing 20 ] <|
+    E.column [ E.alignTop, E.alignRight, E.width <| E.px 200, E.spacing 20 ] <|
         case model.website of
             Nothing ->
                 startUpTools
